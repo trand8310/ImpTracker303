@@ -401,7 +401,7 @@ namespace CefClient
                 }
             }
 
-
+            sleepInt = 180;
             var sw = devInfo["sw"].Value<int>();
             var sh = devInfo["sh"].Value<int>();
             var os = _args["os"]?.Value<int>() ?? 1;
@@ -441,7 +441,7 @@ namespace CefClient
                         {
                             addressChanged(args.Address);
                         };
-                        //browser.FrameLoadEnd += (s, args) =>
+                        //browser.FrameLoadStart += (s, args) =>
                         //{
                         //    if (args.Frame.IsMain)
                         //    {
@@ -469,7 +469,7 @@ namespace CefClient
                         #endregion
 
                     });
-                    await Task.Delay(500);
+       
                     using (var devToolsClient = browser.GetDevToolsClient())
                     {
                         //await devToolsClient.Storage.ClearDataForOriginAsync("*", "cache_storage,cookies,local_storage");
@@ -537,16 +537,11 @@ namespace CefClient
                                 }
                             }
 
-                            if (sleepInt > 0)
-                            {
-                                await Task.Delay(sleepInt * 1000);
-                            }
-                            else
-                            {
-                                await Task.Delay(TimeSpan.FromSeconds(4));
-                            }
+                           
+                            
                             if (screenshot)
                             {
+                                await Task.Delay(TimeSpan.FromSeconds(5));
                                 var host = browser.GetBrowserHost();
                                 host.Invalidate(PaintElementType.View);
                                 var screenshotBytes = await browser.CaptureScreenshotAsync();
@@ -555,6 +550,16 @@ namespace CefClient
                                     DisplayBitmap(screenshotBytes, devProfile.ViewportWidth, devProfile.ViewportHeight);
                                 }
                             }
+
+                            if (sleepInt > 0)
+                            {
+                                await Task.Delay(sleepInt * 1000);
+                            }
+                            else
+                            {
+                                await Task.Delay(TimeSpan.FromSeconds(4));
+                            }
+     
                         }
                         catch (Exception ex)
                         {

@@ -5,6 +5,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace CefClient
@@ -38,7 +39,7 @@ namespace CefClient
                 IgnoreCertificateErrors = true,
                 LogSeverity = LogSeverity.Disable,
                 WindowlessRenderingEnabled = true,
-                UserAgent = "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+                UserAgent = "Mozilla/5.0 (Linux; Android 13; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36",
             };
             // 启用媒体流
             settings.CefCommandLineArgs.Add("enable-media-stream", "1");
@@ -58,6 +59,28 @@ namespace CefClient
             //settings.LogSeverity = LogSeverity.Disable;
             //settings.LogFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cef_debug.log");
             var success = Cef.Initialize(settings, performDependencyCheck: true, browserProcessHandler: null);
+
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+
+            Application.ThreadException += (sender, e) =>
+            {
+                // TODO: 这里接你的日志
+            };
+
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+            {
+                // TODO: 这里接你的日志
+            };
+
+            AppDomain.CurrentDomain.FirstChanceException += (sender, e) =>
+            {
+                // 如无必要，不建议这里做重日志
+            };
+
+            TaskScheduler.UnobservedTaskException += (sender, e) =>
+            {
+                e.SetObserved();
+            };
             Application.ApplicationExit += (sender, e) =>
             {
                 if (Cef.IsInitialized)
