@@ -46,6 +46,7 @@ namespace CefClient
         private int hMainWnd = 0;
         private bool showform = true;
         private string uuid = string.Empty;
+        private readonly ResourceCacheManager _sharedResourceCacheManager;
 
         #region  LogWrite
         void LogCallback(params object[] parameters)
@@ -430,19 +431,8 @@ namespace CefClient
                     //browser.RequestHandler = new ExternalProtocolRequestHandler(message => { });
 
                     //CefCachePaths.RootCachePath = System.IO.Path.Combine(new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory).Parent.FullName, "User Data", consumerId);
-                    var options = new ResourceCacheOptions
-                    {
-                        CacheRoot = Path.Combine(CefCachePaths.GlobalCachePath, "resource_cache"),
-                        MaxMemoryCaptureBytes = 10 * 1024 * 1024,
-                        CacheExpireDays = 3,
-                        EnableImageCache = true,
-                        EnableScriptCache = true,
-                        EnableCssCache = true,
-                        EnableFontCache = false,
-                        // 建议先 false
-                        EnableVideoCache = false
-                    };
-                    browser.RequestHandler = new CachedRequestHandler(options);
+                    var cachedRequestHandler = new CachedRequestHandler(_sharedResourceCacheManager);
+                    browser.RequestHandler = cachedRequestHandler;
 
 
                     if (screenshot)
@@ -570,6 +560,14 @@ namespace CefClient
                         {
 
                             LogWriteLine($"err:{ex.Message}");
+                        }
+                        finally
+                        {
+                            var flushed = cachedRequestHandler.WaitForPendingWrites(15000);
+                            if (!flushed)
+                            {
+                                LogWriteLine("缓存落盘等待超时(15s)，可能仍有少量资源未写入。");
+                            }
                         }
 
                     }
@@ -706,6 +704,17 @@ namespace CefClient
         public MainForm()
         {
             InitializeComponent();
+            _sharedResourceCacheManager = new ResourceCacheManager(new ResourceCacheOptions
+            {
+                CacheRoot = Path.Combine(CefCachePaths.GlobalCachePath, "resource_cache"),
+                MaxMemoryCaptureBytes = 10 * 1024 * 1024,
+                CacheExpireDays = 3,
+                EnableImageCache = true,
+                EnableScriptCache = true,
+                EnableCssCache = true,
+                EnableFontCache = false,
+                EnableVideoCache = false
+            });
             this.sync = SynchronizationContext.Current;
             var commandLineArgs = System.Environment.GetCommandLineArgs();
             foreach (var c in commandLineArgs)
