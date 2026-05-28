@@ -201,44 +201,7 @@ namespace CefClient.Handler
             if (!ShouldCache(request))
                 return null;
 
-            var key = BuildCacheKey(request.Url);
-
-            ResourceCacheItem item;
-
-            if (_memoryIndex.TryGetValue(key, out item))
-            {
-                if (IsCacheItemValid(item))
-                {
-                    item.LastHitAt = DateTime.Now;
-                    return item;
-                }
-
-                ResourceCacheItem removed;
-                _memoryIndex.TryRemove(key, out removed);
-            }
-
-            var metaPath = GetMetaPath(key);
-
-            if (!File.Exists(metaPath))
-                return null;
-
-            try
-            {
-                var json = File.ReadAllText(metaPath, Encoding.UTF8);
-                var diskItem = JsonConvert.DeserializeObject<ResourceCacheItem>(json);
-
-                if (diskItem == null || !IsCacheItemValid(diskItem))
-                    return null;
-
-                diskItem.LastHitAt = DateTime.Now;
-                _memoryIndex[key] = diskItem;
-
-                return diskItem;
-            }
-            catch
-            {
-                return null;
-            }
+            return TryGetCacheByUrl(request.Url);
         }
 
         public void SaveAsync(IRequest request, IResponse response, byte[] bytes)
@@ -247,6 +210,11 @@ namespace CefClient.Handler
                 return;
 
             var url = request.Url;
+            var mimeTypeFromResponse = response.MimeType;
+
+            if (string.IsNullOrWhiteSpace(url))
+                return;
+
             var key = BuildCacheKey(url);
 
             Task.Run(delegate
@@ -257,13 +225,13 @@ namespace CefClient.Handler
 
                 try
                 {
-                    var old = TryGetCache(request);
+                    var old = TryGetCacheByUrl(url);
 
                     if (old != null)
                         return;
 
                     var ext = GetExtensionFromUrl(url);
-                    var mimeType = response.MimeType;
+                    var mimeType = mimeTypeFromResponse;
 
                     if (string.IsNullOrWhiteSpace(ext))
                     {
@@ -319,6 +287,51 @@ namespace CefClient.Handler
                     _keyLocks.TryRemove(key, out removed);
                 }
             });
+        }
+
+        private ResourceCacheItem TryGetCacheByUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                return null;
+
+            var key = BuildCacheKey(url);
+
+            ResourceCacheItem item;
+
+            if (_memoryIndex.TryGetValue(key, out item))
+            {
+                if (IsCacheItemValid(item))
+                {
+                    item.LastHitAt = DateTime.Now;
+                    return item;
+                }
+
+                ResourceCacheItem removed;
+                _memoryIndex.TryRemove(key, out removed);
+            }
+
+            var metaPath = GetMetaPath(key);
+
+            if (!File.Exists(metaPath))
+                return null;
+
+            try
+            {
+                var json = File.ReadAllText(metaPath, Encoding.UTF8);
+                var diskItem = JsonConvert.DeserializeObject<ResourceCacheItem>(json);
+
+                if (diskItem == null || !IsCacheItemValid(diskItem))
+                    return null;
+
+                diskItem.LastHitAt = DateTime.Now;
+                _memoryIndex[key] = diskItem;
+
+                return diskItem;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         public bool IsRangeRequest(IRequest request)
