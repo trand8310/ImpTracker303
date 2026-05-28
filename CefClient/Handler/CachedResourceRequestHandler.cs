@@ -30,6 +30,21 @@
             if (_cacheManager.IsRangeRequest(request))
                 return null;
 
+            byte[] hotBytes;
+            string hotMimeType;
+            if (_cacheManager.TryGetHotCache(request, out hotBytes, out hotMimeType))
+            {
+                var hotHandler = ResourceHandler.FromByteArray(hotBytes, string.IsNullOrWhiteSpace(hotMimeType) ? "application/octet-stream" : hotMimeType);
+                hotHandler.StatusCode = 200;
+                hotHandler.StatusText = "OK";
+                if (hotHandler.Headers != null)
+                {
+                    hotHandler.Headers["X-CefSharp-Resource-Cache"] = "HOT-HIT";
+                    hotHandler.Headers["Cache-Control"] = "public, max-age=31536000";
+                }
+                return hotHandler;
+            }
+
             var cacheItem = _cacheManager.TryGetCache(request);
 
             if (cacheItem == null)
