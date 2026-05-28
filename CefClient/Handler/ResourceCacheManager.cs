@@ -73,6 +73,11 @@ namespace CefClient.Handler
             ".mp4", ".webm", ".m4v", ".mov", ".m3u8", ".ts"
         };
 
+        private static readonly HashSet<string> TrackingQueryKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "m", "sid", "ot", "ac", "_aid", "_refer", "_source", "ver"
+        };
+
         public ResourceCacheOptions Options { get; private set; }
 
         public ResourceCacheManager(ResourceCacheOptions options)
@@ -113,6 +118,9 @@ namespace CefClient.Handler
                 return false;
 
             if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+                return false;
+
+            if (IsLikelyTrackingRequest(request.Url, request.ResourceType))
                 return false;
 
             if (request.IsRangeRequest)
@@ -169,6 +177,46 @@ namespace CefClient.Handler
                  string.Equals(resourceType, "MediaResource", StringComparison.OrdinalIgnoreCase)))
             {
                 return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsLikelyTrackingRequest(string url, string resourceType)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                return false;
+
+            Uri uri;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out uri))
+                return false;
+
+            var path = uri.AbsolutePath ?? string.Empty;
+            var ext = Path.GetExtension(path);
+            if (!string.Equals(ext, ".gif", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(resourceType, "Image", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var query = uri.Query;
+            if (string.IsNullOrWhiteSpace(query) || query.Length <= 1)
+                return false;
+
+            var queryText = query[0] == '?' ? query.Substring(1) : query;
+            var pairs = queryText.Split('&');
+            for (int i = 0; i < pairs.Length; i++)
+            {
+                var part = pairs[i];
+                if (string.IsNullOrWhiteSpace(part))
+                    continue;
+
+                var idx = part.IndexOf('=');
+                var rawKey = idx >= 0 ? part.Substring(0, idx) : part;
+                var key = Uri.UnescapeDataString(rawKey ?? string.Empty);
+
+                if (TrackingQueryKeys.Contains(key))
+                    return true;
             }
 
             return false;
