@@ -21,6 +21,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Schedulers;
 using System.Web;
@@ -72,8 +73,9 @@ namespace MainClient
         private IpHelper _ipHelper;
         private ProxyChecker.ProxyTester _ipTester = new ProxyChecker.ProxyTester();
         private Stopwatch sw = new Stopwatch();
-        private TaskFactory taskFactory = null;
-        private BlockingCollection<JToken> taskOfList = null;
+        private TaskDispatchManager taskDispatchManager = null;
+        private CefClientProcessManager cefProcessManager = null;
+        private List<JToken> pendingTasks = new List<JToken>();
         //ANDROID 设备参数
         private ConcurrentQueue<JToken> android_dev_queues = new ConcurrentQueue<JToken>();
         //IOS 设备参数
@@ -211,14 +213,7 @@ namespace MainClient
             {
                 var uuid = message["uuid"].ToString();
                 var windowHandle = Convert.ToInt32(message["WindowHandle"].ToString());
-                if (this.processOfList.TryGetValue(uuid, out var client))
-                {
-                    this.processOfList.AddOrUpdate(uuid, client, (key, oldValue) =>
-                    {
-                        oldValue.ClientWindowHandle = windowHandle;
-                        return oldValue;
-                    });
-                }
+                this.cefProcessManager?.UpdateWindowHandle(uuid, windowHandle);
             }
         }
         private static int SendLoadUrlMessage(ProcessItem clientProcess, string url, string url2, JObject _args, string userAgent, string referer, JObject param, JToken devInfo, string cacheIndex)
@@ -2246,11 +2241,11 @@ namespace MainClient
                 process.Exited += (a, b) =>
                 {
                     LogWriteLine($"退出进程{uuid}");
-                    this.processOfList.TryRemove(uuid, out var value);
+                    this.cefProcessManager?.Remove(uuid);
                     sync.Post((pi) =>
                     {
                         label15.Text = $"活动进程:{pi}";
-                    }, this.processOfList.Count);
+                    }, this.cefProcessManager != null ? this.cefProcessManager.Count : 0);
                 };
                 process.Start();
                 return process;
@@ -2279,18 +2274,10 @@ namespace MainClient
                     if (!string.IsNullOrWhiteSpace(tasklist_dat) && System.IO.File.Exists(tasklist_dat))
                     {
                         var content = System.IO.File.ReadAllText(tasklist_dat);
-                        if (setting.Multiple > 1)
-                        {
-                            this.taskOfList = new BlockingCollection<JToken>(3 + setting.Multiple);
-                        }
-                        else
-                        {
-                            this.taskOfList = new BlockingCollection<JToken>(3);
-                        }
                         var values = JsonConvert.DeserializeObject<List<JToken>>(content);
-                        foreach (var _task in values)
+                        if (values != null)
                         {
-                            this.taskOfList.Add(_task);
+                            this.pendingTasks.AddRange(values);
                         }
                         try
                         {
@@ -2326,6 +2313,11 @@ namespace MainClient
 
         //IP列列
         private ConcurrentDictionary<int, BlockingCollection<string>> taskIpDict = new ConcurrentDictionary<int, BlockingCollection<string>>();
+        private int GetTaskQueueCapacity()
+        {
+            return setting.Multiple > 1 ? 3 + setting.Multiple : 3;
+        }
+
         private void buttonStart_Click(object sender, EventArgs e)
         {
             if (buttonStart.Text.Equals("停止"))
@@ -2345,30 +2337,11 @@ namespace MainClient
                         sw.Stop();
                         this.TopMost = false;
                     }, null);
-                    await Task.Delay(5 * 1000);
-                    if (this.processOfList.Count() > 0)
+                    if (this.taskDispatchManager != null)
                     {
-                        foreach (var p in this.processOfList.Values)
-                        {
-                            await Task.Factory.StartNew((pid) =>
-                            {
-                                var _proc = Process.GetProcessById(Convert.ToInt32(pid));
-                                if (_proc != null && !_proc.HasExited)
-                                {
-                                    try
-                                    {
-                                        _proc.Kill();
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        LogWriteLine(ex.Message);
-                                        CommonHelper.KillProcExec(_proc.Id);
-                                    }
-                                }
-                            }, p.ProcessId);
-                        }
+                        await this.taskDispatchManager.StopAsync(8 * 1000);
                     }
-                    this.processOfList.Clear();
+                    this.cefProcessManager?.KillAll();
                     CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
                     #region 删除物理文件
                     /*
@@ -2408,26 +2381,16 @@ namespace MainClient
             applicationstop = false;
             UpdateAppSetting();
 
-            if (this.taskOfList == null || this.taskOfList.Count() == 0)
-            {
-                if (setting.Multiple > 1)
-                {
-                    this.taskOfList = new BlockingCollection<JToken>(3 + setting.Multiple);
-                }
-                else
-                {
-                    this.taskOfList = new BlockingCollection<JToken>(3);
-                }
-            }
+            this.taskDispatchManager = new TaskDispatchManager(GetTaskQueueCapacity());
 
             this.selfWndHandle = (int)this.Handle;
             this.processOfList = new System.Collections.Concurrent.ConcurrentDictionary<string, ProcessItem>();
             this.processOfList.Clear();
+            this.cefProcessManager = new CefClientProcessManager(this.processOfList, LogWriteLine);
             buttonStart.Text = "停止";
             buttonStart.ForeColor = Color.Blue;
             sw.Reset();
             sw.Start();
-            taskFactory = new TaskFactory(new LimitedConcurrencyLevelTaskScheduler(setting.MaximumLimitedConcurrency));
             this.cts = new CancellationTokenSource();
             this.cts.Token.Register(() =>
             {
@@ -2437,10 +2400,15 @@ namespace MainClient
                 this.buttonStart.Enabled = false;
             });
 
-            #region 获取任务
-            var produce = Task.Factory.StartNew(() =>
+            #region 获取任务及执行任务
+            foreach (var pendingTask in this.pendingTasks)
             {
-                while (!this.cts.Token.IsCancellationRequested)
+                this.taskDispatchManager.Writer.TryWrite(pendingTask);
+            }
+            this.pendingTasks.Clear();
+            this.taskDispatchManager.Start(setting.MaximumParallel, async (writer, token) =>
+            {
+                while (!token.IsCancellationRequested)
                 {
                     if (applicationstop || applicationrestart)
                     {
@@ -2452,10 +2420,7 @@ namespace MainClient
                     {
                         if (content.Equals("empty"))
                         {
-                            sync.Post((p) =>
-                            {
-                                this.taskInfoListView.Items.Clear();
-                            }, null);
+                            sync.Post((p) => { this.taskInfoListView.Items.Clear(); }, null);
                             LogWriteLine($"共取到[0]条任务");
                         }
                         else
@@ -2472,7 +2437,7 @@ namespace MainClient
                                         {
                                             foreach (var task in tasks["task"])
                                             {
-                                                taskOfList.Add(task, this.cts.Token);
+                                                await writer.WriteAsync(task, token);
                                             }
                                         }
                                     }
@@ -2480,7 +2445,7 @@ namespace MainClient
                                     {
                                         foreach (var task in tasks["task"])
                                         {
-                                            taskOfList.Add(task, this.cts.Token);
+                                            await writer.WriteAsync(task, token);
                                         }
                                     }
                                     AddTaskInfo(tasks["task"]);
@@ -2497,18 +2462,11 @@ namespace MainClient
                     {
                         LogWriteLine("获取任务");
                     }
-                    SpinWait.SpinUntil(() => this.cts.Token.IsCancellationRequested, setting.GetTaskInterval);
+                    SpinWait.SpinUntil(() => token.IsCancellationRequested, setting.GetTaskInterval);
                 }
-            }, cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-            #endregion
-
-            #region 执行任务
-
-            for (int parallelIndex = 1; parallelIndex <= setting.MaximumParallel; parallelIndex++)
-            {
-                var consume = taskFactory.StartNew(async (index) =>
+            }, async (consumerId, reader, token) =>
                 {
-                    var consumerId = Convert.ToInt32(index);
+
                     int jobTotals = 0;
                     int jobTimeRandomSeed = setting.SubResetInterval * 60 + new Random(Guid.NewGuid().GetHashCode()).Next(-30, 30);
 
@@ -2517,9 +2475,13 @@ namespace MainClient
                     ProcessItem client = null;
                     Process process = null;
 
-                    while (!this.cts.IsCancellationRequested && !applicationrestart)
+                    while (!token.IsCancellationRequested && !applicationrestart)
                     {
-                        if (taskOfList.TryTake(out var jobVal, 1000, this.cts.Token))
+                        if (!await reader.WaitToReadAsync(token))
+                        {
+                            break;
+                        }
+                        if (reader.TryRead(out var jobVal))
                         {
                             var job = (JObject)jobVal;
                             if (jobFirst)
@@ -2553,7 +2515,7 @@ namespace MainClient
                                 }
                                 process = CreateNewProcess(destFileName, this.selfWndHandle, uuid, consumerId);
                                 client = new ProcessItem() { ProcessId = process.Id, ClientWindowHandle = 0, ProcessPath = destFileName, time = System.DateTime.Now };
-                                this.processOfList.TryAdd(uuid, client);
+                                this.cefProcessManager.Register(uuid, client);
                                 SpinWait.SpinUntil(() => this.cts.IsCancellationRequested || client.ClientWindowHandle != 0, 30 * 1000);
                                 try
                                 {
@@ -2569,7 +2531,7 @@ namespace MainClient
                             sync.Post((pi) =>
                             {
                                 label15.Text = $"活动进程:{pi}";
-                            }, this.processOfList.Count);
+                            }, this.cefProcessManager != null ? this.cefProcessManager.Count : 0);
 
                             var task = job as JObject;
                             if (this.cts.IsCancellationRequested)
@@ -3029,10 +2991,6 @@ namespace MainClient
                             //await Task.Delay(1000, this.cts.Token);
                             SpinWait.SpinUntil(() => this.cts.IsCancellationRequested, setting.UVInterval);
                         }
-                        else
-                        {
-                            await Task.Delay(1000, this.cts.Token);
-                        }
                     }
 
                     if (process != null && !process.HasExited)
@@ -3047,84 +3005,42 @@ namespace MainClient
                             CommonHelper.KillProcExec(process.Id);
                         }
                     }
-                }, parallelIndex, this.cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-            }
+            }, this.cts.Token);
 
             #endregion
 
             #region 守护任务
-            int detected_lock = 0;
             var defends = Task.Factory.StartNew(async () =>
             {
-                int appRandomSeek = setting.MainResetInterval * 60 + new Random(Guid.NewGuid().GetHashCode()).Next(-30, 30);
-
-                while (true)
+                var restartGuard = new AppRestartGuard(
+                    setting.MainResetInterval,
+                    setting.SendSms,
+                    setting.SendSmsTimeout,
+                    LogWriteLine,
+                    SendSms);
+                await restartGuard.WaitForRestartAsync(this.cts.Token, setting.SmsName, setting.SmsPhone);
+                if (this.cts.IsCancellationRequested)
                 {
-                    //                    #region 更新检测
-                    //#if !DEBUG
-                    //                    if (!string.IsNullOrWhiteSpace(setting.UpdateApiUrl) && CheckUpdateOnly())
-                    //                    {
-                    //                        applicationrestart = true;
-                    //                        LogWriteLine("检测到更新,系统将重启应用");
-                    //                        sync.Post((p) =>
-                    //                        {
-                    //                            this.buttonStart.Enabled = false;
-                    //                            this.button1.Enabled = false;
-                    //                        }, null);
-                    //                        break;
-                    //                    }
-                    //#endif
-                    //                    #endregion
-
-                    var process = Process.GetCurrentProcess();
-                    var totalSeconds = (int)(((TimeSpan)(System.DateTime.Now - process.StartTime)).TotalSeconds);
-                    if (setting.MainResetInterval > 0 && totalSeconds > appRandomSeek)
-                    {
-                        applicationrestart = true;
-                        LogWriteLine("将重启应用程序");
-                        sync.Post((p) =>
-                        {
-                            detected_lock = 1;
-                            this.buttonStart.Enabled = false;
-                            this.button1.Enabled = false;
-                        }, null);
-                        break;
-                    }
-                    SpinWait.SpinUntil(() => this.cts.IsCancellationRequested || applicationrestart, 60 * 1000);
+                    return;
                 }
-                if (setting.SendSms)
+                applicationrestart = true;
+                sync.Post((p) =>
                 {
-                    await Task.Factory.StartNew(async () =>
-                    {
-                        while (true)
-                        {
-                            detected_lock++;
-                            await Task.Delay(1000);
-
-                            if (detected_lock > setting.SendSmsTimeout * 60)
-                            {
-                                detected_lock = 1;
-                                SendSms(setting.SmsName, setting.SmsPhone);
-                                LogWriteLine("检测到超时,发送短信");
-                                //超过120秒还未重启重功,发送短信
-                                await Task.Delay(TimeSpan.FromMinutes(30));
-
-                            }
-                        }
-                    });
-                }
-
+                    this.buttonStart.Enabled = false;
+                    this.button1.Enabled = false;
+                }, null);
 
                 string tasklist_dat = string.Empty;
 
-                if (taskOfList.Count() > 0)
+                var remainingTasks = this.taskDispatchManager != null ? this.taskDispatchManager.DrainPending() : new List<JToken>();
+                if (remainingTasks.Count > 0)
                 {
                     ///暂时存任务列表
                     logger.Info("暂时存任务列表");
                     try
                     {
                         tasklist_dat = $"tasklist_dat{System.DateTime.Now.Ticks}.tmp";
-                        System.IO.File.WriteAllText(tasklist_dat, JsonConvert.SerializeObject(taskOfList));
+                        System.IO.File.WriteAllText(tasklist_dat, JsonConvert.SerializeObject(remainingTasks));
 
                     }
                     catch (Exception ex)
@@ -3135,27 +3051,10 @@ namespace MainClient
                 }
                 logger.Info("延时5秒");
                 await Task.Delay(5000);
-                if (this.processOfList.Count() > 0)
+                if (this.cefProcessManager != null && this.cefProcessManager.Count > 0)
                 {
                     logger.Info("清理未结束的进程");
-                    var pids = this.processOfList.Values.ToList();
-                    foreach (var p in pids)
-                    {
-
-                        var _proc = Process.GetProcessById(p.ProcessId);
-                        if (_proc != null && !_proc.HasExited)
-                        {
-                            try
-                            {
-                                _proc.Kill();
-                            }
-                            catch (Exception ex)
-                            {
-                                LogWriteLine(ex.Message);
-                                CommonHelper.KillProcExec(_proc.Id);
-                            }
-                        }
-                    }
+                    this.cefProcessManager.KillAll();
                 }
                 CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
                 sync.Post((p) =>
