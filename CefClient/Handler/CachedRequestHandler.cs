@@ -25,6 +25,11 @@
             _cacheManager = new ResourceCacheManager(options);
         }
 
+        public CachedRequestHandler(ResourceCacheManager cacheManager)
+        {
+            _cacheManager = cacheManager ?? throw new ArgumentNullException(nameof(cacheManager));
+        }
+
         public bool WaitForPendingWrites(int millisecondsTimeout)
         {
             return _cacheManager.WaitForPendingWrites(millisecondsTimeout);

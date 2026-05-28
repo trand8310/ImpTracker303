@@ -32,9 +32,21 @@ namespace CefClient.Handler
         }
 
         private readonly ConcurrentDictionary<string, ResourceCacheItem> _memoryIndex;
+        private readonly ConcurrentDictionary<string, HotCacheEntry> _hotCache;
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _keyLocks;
         private int _pendingWriteCount;
         private readonly ManualResetEventSlim _pendingWriteCompleted = new ManualResetEventSlim(true);
+        private const int HotCacheMaxEntries = 256;
+        private const long HotCacheMaxBytes = 64L * 1024 * 1024;
+        private long _hotCacheBytes;
+
+        private sealed class HotCacheEntry
+        {
+            public byte[] Bytes { get; set; }
+            public string MimeType { get; set; }
+            public DateTime LastHitAt { get; set; }
+            public int HitCount { get; set; }
+        }
 
         private static readonly HashSet<string> ImageExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -73,6 +85,7 @@ namespace CefClient.Handler
             }
 
             _memoryIndex = new ConcurrentDictionary<string, ResourceCacheItem>();
+            _hotCache = new ConcurrentDictionary<string, HotCacheEntry>();
             _keyLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
 
             Directory.CreateDirectory(Options.CacheRoot);
@@ -234,6 +247,26 @@ namespace CefClient.Handler
             return TryGetCacheByUrl(request.Url);
         }
 
+        public bool TryGetHotCache(IRequest request, out byte[] bytes, out string mimeType)
+        {
+            bytes = null;
+            mimeType = null;
+
+            if (request == null || string.IsNullOrWhiteSpace(request.Url))
+                return false;
+
+            var key = BuildCacheKey(request.Url);
+            HotCacheEntry entry;
+            if (!_hotCache.TryGetValue(key, out entry) || entry == null || entry.Bytes == null || entry.Bytes.Length == 0)
+                return false;
+
+            entry.LastHitAt = DateTime.Now;
+            entry.HitCount++;
+            bytes = entry.Bytes;
+            mimeType = entry.MimeType;
+            return true;
+        }
+
         public void SaveAsync(IRequest request, IResponse response, byte[] bytes)
         {
             if (request == null || response == null || bytes == null || bytes.Length == 0)
@@ -312,6 +345,7 @@ namespace CefClient.Handler
                     File.WriteAllText(metaPath, json, Encoding.UTF8);
 
                     _memoryIndex[key] = item;
+                    AddOrUpdateHotCache(key, bytes, item.MimeType);
                 }
                 catch
                 {
@@ -330,6 +364,69 @@ namespace CefClient.Handler
                     }
                 }
             });
+        }
+
+        private void AddOrUpdateHotCache(string key, byte[] bytes, string mimeType)
+        {
+            if (string.IsNullOrWhiteSpace(key) || bytes == null || bytes.Length == 0)
+                return;
+
+            if (bytes.Length > 2 * 1024 * 1024)
+                return;
+
+            HotCacheEntry old;
+            if (_hotCache.TryGetValue(key, out old) && old?.Bytes != null)
+            {
+                Interlocked.Add(ref _hotCacheBytes, -old.Bytes.Length);
+            }
+
+            var entry = new HotCacheEntry
+            {
+                Bytes = bytes,
+                MimeType = mimeType,
+                LastHitAt = DateTime.Now,
+                HitCount = old == null ? 1 : old.HitCount + 1
+            };
+
+            _hotCache[key] = entry;
+            Interlocked.Add(ref _hotCacheBytes, bytes.Length);
+            TrimHotCacheIfNeeded();
+        }
+
+        private void TrimHotCacheIfNeeded()
+        {
+            while (_hotCache.Count > HotCacheMaxEntries || Interlocked.Read(ref _hotCacheBytes) > HotCacheMaxBytes)
+            {
+                string removeKey = null;
+                HotCacheEntry removeEntry = null;
+
+                foreach (var pair in _hotCache)
+                {
+                    var e = pair.Value;
+                    if (e == null)
+                        continue;
+
+                    if (removeEntry == null || e.HitCount < removeEntry.HitCount ||
+                        (e.HitCount == removeEntry.HitCount && e.LastHitAt < removeEntry.LastHitAt))
+                    {
+                        removeKey = pair.Key;
+                        removeEntry = e;
+                    }
+                }
+
+                if (removeKey == null)
+                    break;
+
+                HotCacheEntry removed;
+                if (_hotCache.TryRemove(removeKey, out removed) && removed?.Bytes != null)
+                {
+                    Interlocked.Add(ref _hotCacheBytes, -removed.Bytes.Length);
+                }
+                else
+                {
+                    break;
+                }
+            }
         }
 
         public bool WaitForPendingWrites(int millisecondsTimeout)
