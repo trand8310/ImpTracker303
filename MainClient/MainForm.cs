@@ -74,6 +74,7 @@ namespace MainClient
         private ProxyChecker.ProxyTester _ipTester = new ProxyChecker.ProxyTester();
         private Stopwatch sw = new Stopwatch();
         private TaskDispatchManager taskDispatchManager = null;
+        private CefClientProcessManager cefProcessManager = null;
         private List<JToken> pendingTasks = new List<JToken>();
         //ANDROID 设备参数
         private ConcurrentQueue<JToken> android_dev_queues = new ConcurrentQueue<JToken>();
@@ -212,14 +213,7 @@ namespace MainClient
             {
                 var uuid = message["uuid"].ToString();
                 var windowHandle = Convert.ToInt32(message["WindowHandle"].ToString());
-                if (this.processOfList.TryGetValue(uuid, out var client))
-                {
-                    this.processOfList.AddOrUpdate(uuid, client, (key, oldValue) =>
-                    {
-                        oldValue.ClientWindowHandle = windowHandle;
-                        return oldValue;
-                    });
-                }
+                this.cefProcessManager?.UpdateWindowHandle(uuid, windowHandle);
             }
         }
         private static int SendLoadUrlMessage(ProcessItem clientProcess, string url, string url2, JObject _args, string userAgent, string referer, JObject param, JToken devInfo, string cacheIndex)
@@ -2247,11 +2241,11 @@ namespace MainClient
                 process.Exited += (a, b) =>
                 {
                     LogWriteLine($"退出进程{uuid}");
-                    this.processOfList.TryRemove(uuid, out var value);
+                    this.cefProcessManager?.Remove(uuid);
                     sync.Post((pi) =>
                     {
                         label15.Text = $"活动进程:{pi}";
-                    }, this.processOfList.Count);
+                    }, this.cefProcessManager != null ? this.cefProcessManager.Count : 0);
                 };
                 process.Start();
                 return process;
@@ -2348,29 +2342,7 @@ namespace MainClient
                     {
                         await this.taskDispatchManager.StopAsync(8 * 1000);
                     }
-                    if (this.processOfList.Count() > 0)
-                    {
-                        foreach (var p in this.processOfList.Values)
-                        {
-                            await Task.Factory.StartNew((pid) =>
-                            {
-                                var _proc = Process.GetProcessById(Convert.ToInt32(pid));
-                                if (_proc != null && !_proc.HasExited)
-                                {
-                                    try
-                                    {
-                                        _proc.Kill();
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        LogWriteLine(ex.Message);
-                                        CommonHelper.KillProcExec(_proc.Id);
-                                    }
-                                }
-                            }, p.ProcessId);
-                        }
-                    }
-                    this.processOfList.Clear();
+                    this.cefProcessManager?.KillAll();
                     CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
                     #region 删除物理文件
                     /*
@@ -2415,6 +2387,7 @@ namespace MainClient
             this.selfWndHandle = (int)this.Handle;
             this.processOfList = new System.Collections.Concurrent.ConcurrentDictionary<string, ProcessItem>();
             this.processOfList.Clear();
+            this.cefProcessManager = new CefClientProcessManager(this.processOfList, LogWriteLine);
             buttonStart.Text = "停止";
             buttonStart.ForeColor = Color.Blue;
             sw.Reset();
@@ -2543,7 +2516,7 @@ namespace MainClient
                                 }
                                 process = CreateNewProcess(destFileName, this.selfWndHandle, uuid, consumerId);
                                 client = new ProcessItem() { ProcessId = process.Id, ClientWindowHandle = 0, ProcessPath = destFileName, time = System.DateTime.Now };
-                                this.processOfList.TryAdd(uuid, client);
+                                this.cefProcessManager.Register(uuid, client);
                                 SpinWait.SpinUntil(() => this.cts.IsCancellationRequested || client.ClientWindowHandle != 0, 30 * 1000);
                                 try
                                 {
@@ -2559,7 +2532,7 @@ namespace MainClient
                             sync.Post((pi) =>
                             {
                                 label15.Text = $"活动进程:{pi}";
-                            }, this.processOfList.Count);
+                            }, this.cefProcessManager != null ? this.cefProcessManager.Count : 0);
 
                             var task = job as JObject;
                             if (this.cts.IsCancellationRequested)
@@ -3079,27 +3052,10 @@ namespace MainClient
                 }
                 logger.Info("延时5秒");
                 await Task.Delay(5000);
-                if (this.processOfList.Count() > 0)
+                if (this.cefProcessManager != null && this.cefProcessManager.Count > 0)
                 {
                     logger.Info("清理未结束的进程");
-                    var pids = this.processOfList.Values.ToList();
-                    foreach (var p in pids)
-                    {
-
-                        var _proc = Process.GetProcessById(p.ProcessId);
-                        if (_proc != null && !_proc.HasExited)
-                        {
-                            try
-                            {
-                                _proc.Kill();
-                            }
-                            catch (Exception ex)
-                            {
-                                LogWriteLine(ex.Message);
-                                CommonHelper.KillProcExec(_proc.Id);
-                            }
-                        }
-                    }
+                    this.cefProcessManager.KillAll();
                 }
                 CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
                 sync.Post((p) =>
