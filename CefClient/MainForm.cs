@@ -3,6 +3,7 @@ using CefClient.Common.CefClient.Common;
 using CefClient.Handler;
 using CefSharp;
 using CefSharp.DevTools;
+using CefSharp.DevTools.Autofill;
 using CefSharp.DevTools.Emulation;
 using CefSharp.DevTools.Network;
 using CefSharp.Handler;
@@ -42,11 +43,11 @@ namespace CefClient
         const int WM_MYSYMPLE = 0x005A;
         #endregion
 
-        private SynchronizationContext sync;
         private int hMainWnd = 0;
         private bool showform = true;
         private string uuid = string.Empty;
         private readonly ResourceCacheManager _sharedResourceCacheManager;
+
 
         #region  LogWrite
         void LogCallback(params object[] parameters)
@@ -409,10 +410,7 @@ namespace CefClient
             var pvTotal = taskParam["pv"].Value<int>();
             var devProfile = os == 7 ? DeviceViewportMatcher.Match(sw, sh, DeviceSystemType.Windows) : os == 2 ? DeviceViewportMatcher.Match(sw, sh, DeviceSystemType.IOS, string.IsNullOrWhiteSpace(name) ? null : name) : DeviceViewportMatcher.Match(sw, sh, DeviceSystemType.Android);
 
-
-
             LogWriteLine($"缓存:{cachePath},sleep={sleepInt},os={os},pv={pvTotal},osv={devInfo["osv"]?.Value<string>()}");
-
 
             //K30 PRO:393 * 873
             //Pixel5: 393 * 851
@@ -469,7 +467,7 @@ namespace CefClient
                         #endregion
 
                     });
-       
+
                     using (var devToolsClient = browser.GetDevToolsClient())
                     {
                         //await devToolsClient.Storage.ClearDataForOriginAsync("*", "cache_storage,cookies,local_storage");
@@ -537,8 +535,8 @@ namespace CefClient
                                 }
                             }
 
-                           
-                            
+
+
                             if (screenshot)
                             {
                                 await Task.Delay(TimeSpan.FromSeconds(5));
@@ -559,7 +557,7 @@ namespace CefClient
                             {
                                 await Task.Delay(TimeSpan.FromSeconds(4));
                             }
-     
+
                         }
                         catch (Exception ex)
                         {
@@ -661,31 +659,31 @@ namespace CefClient
             }
             else if (message["Msg"].ToString().Equals("STOP"))
             {
-                await Task.Run(() =>
+                await Task.Run(async () =>
                 {
                     LogWriteLine("5秒后退出该进程");
-                    SpinWait.SpinUntil(() => false, 5000);
-                    sync.Post((p) =>
+                    await Task.Delay(TimeSpan.FromSeconds(5));
+                    this.InvokeOnUiThreadIfRequired(() =>
                     {
                         System.Environment.Exit(0);
-                    }, null);
+                    });
                 });
             }
             else if (message["Msg"].ToString().Equals("SHOW"))
             {
-                sync.Post((p) =>
+                this.InvokeOnUiThreadIfRequired(() =>
                 {
                     this.showform = true;
                     this.SetVisibleCore(true);
-                }, null);
+                });
             }
             else if (message["Msg"].ToString().Equals("HIDE"))
             {
-                sync.Post((p) =>
+                this.InvokeOnUiThreadIfRequired(() =>
                 {
                     this.showform = false;
                     this.SetVisibleCore(false);
-                }, null);
+                });
             }
         }
         protected override void DefWndProc(ref System.Windows.Forms.Message m)
@@ -709,6 +707,7 @@ namespace CefClient
         public MainForm()
         {
             InitializeComponent();
+
             _sharedResourceCacheManager = new ResourceCacheManager(new ResourceCacheOptions
             {
                 CacheRoot = Path.Combine(CefCachePaths.GlobalCachePath, "resource_cache"),
@@ -717,10 +716,10 @@ namespace CefClient
                 EnableImageCache = true,
                 EnableScriptCache = true,
                 EnableCssCache = true,
-                EnableFontCache = false,
+                EnableFontCache = true,
                 EnableVideoCache = false
             });
-            this.sync = SynchronizationContext.Current;
+
             var commandLineArgs = System.Environment.GetCommandLineArgs();
             foreach (var c in commandLineArgs)
             {
@@ -737,6 +736,7 @@ namespace CefClient
                     uuid = c.Split('=')[1];
                 }
             }
+
             SendRegMessage();
             LogWriteLine($"{Process.GetCurrentProcess().Id},{this.Handle},{System.DateTime.Now.ToString("HH:mm:ss")}");
         }
@@ -790,7 +790,6 @@ namespace CefClient
             response.EnsureSuccessStatusCode();
             return await response.Content.ReadAsStringAsync();
         }
-
         private void buttonStart_Click(object sender, EventArgs e)
         {
             string urlText = textBox1.Text;
@@ -829,10 +828,10 @@ namespace CefClient
                 var cachePath = System.IO.Path.Combine(System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase, "User Data", "1", "s0");
                 await MainAsync(url, null, ua, referer, task, dev, _args, cachePath, (address) =>
                 {
-                    this.sync.Post((p) =>
+                    this.InvokeOnUiThreadIfRequired(() =>
                     {
-                        this.textBox1.Text = p.ToString();
-                    }, address);
+                        this.textBox1.Text = address;
+                    });
                 }, LogWriteLine, DisplayBitmap, screenshot: true);
                 LogWriteLine($"{proxy_server},完成");
 
