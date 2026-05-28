@@ -442,7 +442,8 @@ namespace CefClient
                         // 建议先 false
                         EnableVideoCache = false
                     };
-                    browser.RequestHandler = new CachedRequestHandler(options);
+                    var cachedRequestHandler = new CachedRequestHandler(options);
+                    browser.RequestHandler = cachedRequestHandler;
 
 
                     if (screenshot)
@@ -570,6 +571,14 @@ namespace CefClient
                         {
 
                             LogWriteLine($"err:{ex.Message}");
+                        }
+                        finally
+                        {
+                            var flushed = cachedRequestHandler.WaitForPendingWrites(15000);
+                            if (!flushed)
+                            {
+                                LogWriteLine("缓存落盘等待超时(15s)，可能仍有少量资源未写入。");
+                            }
                         }
 
                     }

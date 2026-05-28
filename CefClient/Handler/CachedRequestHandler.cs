@@ -25,6 +25,11 @@
             _cacheManager = new ResourceCacheManager(options);
         }
 
+        public bool WaitForPendingWrites(int millisecondsTimeout)
+        {
+            return _cacheManager.WaitForPendingWrites(millisecondsTimeout);
+        }
+
         protected override bool OnBeforeBrowse(
             IWebBrowser chromiumWebBrowser,
             IBrowser browser,
