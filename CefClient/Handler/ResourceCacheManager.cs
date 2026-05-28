@@ -16,6 +16,21 @@ namespace CefClient.Handler
 
     public sealed class ResourceCacheManager
     {
+        private sealed class RequestSnapshot
+        {
+            public string Url { get; set; }
+            public string Method { get; set; }
+            public string ResourceType { get; set; }
+            public bool IsRangeRequest { get; set; }
+        }
+
+        private sealed class ResponseSnapshot
+        {
+            public int StatusCode { get; set; }
+            public string MimeType { get; set; }
+            public NameValueCollection Headers { get; set; }
+        }
+
         private readonly ConcurrentDictionary<string, ResourceCacheItem> _memoryIndex;
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _keyLocks;
 
@@ -63,6 +78,11 @@ namespace CefClient.Handler
 
         public bool ShouldCache(IRequest request)
         {
+            return ShouldCache(CreateRequestSnapshot(request));
+        }
+
+        private bool ShouldCache(RequestSnapshot request)
+        {
             if (request == null)
                 return false;
 
@@ -80,7 +100,7 @@ namespace CefClient.Handler
             if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
                 return false;
 
-            if (IsRangeRequest(request))
+            if (request.IsRangeRequest)
                 return false;
 
             var ext = GetExtensionFromUrl(request.Url);
@@ -102,7 +122,7 @@ namespace CefClient.Handler
 
             // 不同 CefSharp 版本 ResourceType 枚举名称可能略有差别。
             // 这里尽量用 ToString 兼容。
-            var resourceType = request.ResourceType.ToString();
+            var resourceType = request.ResourceType;
 
             if (Options.EnableImageCache &&
                 string.Equals(resourceType, "Image", StringComparison.OrdinalIgnoreCase))
@@ -140,6 +160,11 @@ namespace CefClient.Handler
         }
 
         public bool ShouldCaptureResponse(IRequest request, IResponse response)
+        {
+            return ShouldCaptureResponse(CreateRequestSnapshot(request), CreateResponseSnapshot(response));
+        }
+
+        private bool ShouldCaptureResponse(RequestSnapshot request, ResponseSnapshot response)
         {
             if (!ShouldCache(request))
                 return false;
@@ -184,7 +209,10 @@ namespace CefClient.Handler
 
         public bool ShouldSaveResponse(IRequest request, IResponse response, long bodyLength)
         {
-            if (!ShouldCaptureResponse(request, response))
+            var requestSnapshot = CreateRequestSnapshot(request);
+            var responseSnapshot = CreateResponseSnapshot(response);
+
+            if (!ShouldCaptureResponse(requestSnapshot, responseSnapshot))
                 return false;
 
             if (bodyLength <= 0)
@@ -209,8 +237,14 @@ namespace CefClient.Handler
             if (request == null || response == null || bytes == null || bytes.Length == 0)
                 return;
 
-            var url = request.Url;
-            var mimeTypeFromResponse = response.MimeType;
+            var requestSnapshot = CreateRequestSnapshot(request);
+            var responseSnapshot = CreateResponseSnapshot(response);
+
+            if (!ShouldSaveResponse(requestSnapshot, responseSnapshot, bytes.Length))
+                return;
+
+            var url = requestSnapshot.Url;
+            var mimeTypeFromResponse = responseSnapshot.MimeType;
 
             if (string.IsNullOrWhiteSpace(url))
                 return;
@@ -287,6 +321,76 @@ namespace CefClient.Handler
                     _keyLocks.TryRemove(key, out removed);
                 }
             });
+        }
+
+        private bool ShouldSaveResponse(RequestSnapshot request, ResponseSnapshot response, long bodyLength)
+        {
+            if (!ShouldCaptureResponse(request, response))
+                return false;
+
+            if (bodyLength <= 0)
+                return false;
+
+            if (bodyLength > Options.MaxMemoryCaptureBytes)
+                return false;
+
+            return true;
+        }
+
+        private RequestSnapshot CreateRequestSnapshot(IRequest request)
+        {
+            if (request == null)
+                return null;
+
+            try
+            {
+                return new RequestSnapshot
+                {
+                    Url = request.Url,
+                    Method = request.Method,
+                    ResourceType = request.ResourceType.ToString(),
+                    IsRangeRequest = IsRangeRequest(request)
+                };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private ResponseSnapshot CreateResponseSnapshot(IResponse response)
+        {
+            if (response == null)
+                return null;
+
+            try
+            {
+                return new ResponseSnapshot
+                {
+                    StatusCode = response.StatusCode,
+                    MimeType = response.MimeType,
+                    Headers = CloneHeaders(response.Headers)
+                };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static NameValueCollection CloneHeaders(NameValueCollection headers)
+        {
+            if (headers == null)
+                return null;
+
+            var copy = new NameValueCollection(headers.Count, StringComparer.OrdinalIgnoreCase);
+
+            foreach (string key in headers.AllKeys)
+            {
+                copy[key] = headers[key];
+            }
+
+            return copy;
         }
 
         private ResourceCacheItem TryGetCacheByUrl(string url)
