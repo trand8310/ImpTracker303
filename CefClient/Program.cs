@@ -12,18 +12,32 @@ namespace CefClient
 {
     public class Program
     {
+        private static string GetBaseDataDirectory()
+        {
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var parent = Directory.GetParent(baseDir);
+            return parent == null ? baseDir : parent.FullName;
+        }
+
         [STAThread]
         public static int Main(string[] args)
         {
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+
             var consumerId = args
             .FirstOrDefault(x => x.StartsWith("--consumer-id=", StringComparison.OrdinalIgnoreCase))
             ?.Substring("--consumer-id=".Length);
 
+            var baseDataDirectory = GetBaseDataDirectory();
+
             if (!string.IsNullOrWhiteSpace(consumerId))
             {
-                CefCachePaths.RootCachePath = System.IO.Path.Combine(new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory).Parent.FullName, "User Data", consumerId);
-                CefCachePaths.GlobalCachePath = System.IO.Path.Combine(new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory).Parent.FullName, "Global");
+                CefCachePaths.RootCachePath = Path.Combine(baseDataDirectory, "User Data", consumerId);
+                CefCachePaths.GlobalCachePath = Path.Combine(baseDataDirectory, "Global");
             }
+
+            Directory.CreateDirectory(CefCachePaths.RootCachePath);
+            Directory.CreateDirectory(CefCachePaths.GlobalCachePath);
 
             CefSharpSettings.ShutdownOnExit = true;
             CefSharpSettings.SubprocessExitIfParentProcessClosed = true;
@@ -59,27 +73,35 @@ namespace CefClient
             //settings.LogSeverity = LogSeverity.Disable;
             //settings.LogFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cef_debug.log");
             var success = Cef.Initialize(settings, performDependencyCheck: true, browserProcessHandler: null);
-
-            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            if (!success)
+            {
+                return -1;
+            }
 
             Application.ThreadException += (sender, e) =>
             {
-                // TODO: 这里接你的日志
+                try
+                {
+                    File.AppendAllText(
+                        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cefclient_error.log"),
+                        $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] UI异常: {e.Exception}{Environment.NewLine}");
+                }
+                catch
+                {
+                }
             };
 
             AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
             {
-                // TODO: 这里接你的日志
-            };
-
-            AppDomain.CurrentDomain.FirstChanceException += (sender, e) =>
-            {
-                // 如无必要，不建议这里做重日志
-            };
-
-            TaskScheduler.UnobservedTaskException += (sender, e) =>
-            {
-                e.SetObserved();
+                try
+                {
+                    File.AppendAllText(
+                        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cefclient_error.log"),
+                        $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] 非UI异常: {e.ExceptionObject}{Environment.NewLine}");
+                }
+                catch
+                {
+                }
             };
             Application.ApplicationExit += (sender, e) =>
             {
