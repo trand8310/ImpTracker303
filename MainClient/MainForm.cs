@@ -2333,6 +2333,7 @@ namespace MainClient
                     await Task.Delay(5 * 1000);
                     sync.Post((p) =>
                     {
+                        this.taskOfList?.Writer.TryComplete();
                         this.cts.Cancel();
                         sw.Stop();
                         this.TopMost = false;
