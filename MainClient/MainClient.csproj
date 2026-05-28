@@ -184,6 +184,7 @@
     <Compile Include="Common\JsonHelper.cs" />
     <Compile Include="Common\ProxyTester.cs" />
     <Compile Include="Common\AppRestartGuard.cs" />
+    <Compile Include="Common\CefClientProcessManager.cs" />
     <Compile Include="Common\TaskDispatchManager.cs" />
     <Compile Include="MainForm.cs">
       <SubType>Form</SubType>
