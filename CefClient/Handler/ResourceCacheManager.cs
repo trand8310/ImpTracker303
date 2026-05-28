@@ -16,8 +16,37 @@ namespace CefClient.Handler
 
     public sealed class ResourceCacheManager
     {
+        private sealed class RequestSnapshot
+        {
+            public string Url { get; set; }
+            public string Method { get; set; }
+            public string ResourceType { get; set; }
+            public bool IsRangeRequest { get; set; }
+        }
+
+        private sealed class ResponseSnapshot
+        {
+            public int StatusCode { get; set; }
+            public string MimeType { get; set; }
+            public NameValueCollection Headers { get; set; }
+        }
+
         private readonly ConcurrentDictionary<string, ResourceCacheItem> _memoryIndex;
+        private readonly ConcurrentDictionary<string, HotCacheEntry> _hotCache;
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _keyLocks;
+        private int _pendingWriteCount;
+        private readonly ManualResetEventSlim _pendingWriteCompleted = new ManualResetEventSlim(true);
+        private const int HotCacheMaxEntries = 256;
+        private const long HotCacheMaxBytes = 64L * 1024 * 1024;
+        private long _hotCacheBytes;
+
+        private sealed class HotCacheEntry
+        {
+            public byte[] Bytes { get; set; }
+            public string MimeType { get; set; }
+            public DateTime LastHitAt { get; set; }
+            public int HitCount { get; set; }
+        }
 
         private static readonly HashSet<string> ImageExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -44,6 +73,11 @@ namespace CefClient.Handler
             ".mp4", ".webm", ".m4v", ".mov", ".m3u8", ".ts"
         };
 
+        private static readonly HashSet<string> TrackingQueryKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "m", "sid", "ot", "ac", "_aid", "_refer", "_source", "ver"
+        };
+
         public ResourceCacheOptions Options { get; private set; }
 
         public ResourceCacheManager(ResourceCacheOptions options)
@@ -56,12 +90,18 @@ namespace CefClient.Handler
             }
 
             _memoryIndex = new ConcurrentDictionary<string, ResourceCacheItem>();
+            _hotCache = new ConcurrentDictionary<string, HotCacheEntry>();
             _keyLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
 
             Directory.CreateDirectory(Options.CacheRoot);
         }
 
         public bool ShouldCache(IRequest request)
+        {
+            return ShouldCache(CreateRequestSnapshot(request));
+        }
+
+        private bool ShouldCache(RequestSnapshot request)
         {
             if (request == null)
                 return false;
@@ -80,7 +120,10 @@ namespace CefClient.Handler
             if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
                 return false;
 
-            if (IsRangeRequest(request))
+            if (IsLikelyTrackingRequest(request.Url, request.ResourceType))
+                return false;
+
+            if (request.IsRangeRequest)
                 return false;
 
             var ext = GetExtensionFromUrl(request.Url);
@@ -102,7 +145,7 @@ namespace CefClient.Handler
 
             // 不同 CefSharp 版本 ResourceType 枚举名称可能略有差别。
             // 这里尽量用 ToString 兼容。
-            var resourceType = request.ResourceType.ToString();
+            var resourceType = request.ResourceType;
 
             if (Options.EnableImageCache &&
                 string.Equals(resourceType, "Image", StringComparison.OrdinalIgnoreCase))
@@ -139,7 +182,52 @@ namespace CefClient.Handler
             return false;
         }
 
+        private static bool IsLikelyTrackingRequest(string url, string resourceType)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                return false;
+
+            Uri uri;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out uri))
+                return false;
+
+            var path = uri.AbsolutePath ?? string.Empty;
+            var ext = Path.GetExtension(path);
+            if (!string.Equals(ext, ".gif", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(resourceType, "Image", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var query = uri.Query;
+            if (string.IsNullOrWhiteSpace(query) || query.Length <= 1)
+                return false;
+
+            var queryText = query[0] == '?' ? query.Substring(1) : query;
+            var pairs = queryText.Split('&');
+            for (int i = 0; i < pairs.Length; i++)
+            {
+                var part = pairs[i];
+                if (string.IsNullOrWhiteSpace(part))
+                    continue;
+
+                var idx = part.IndexOf('=');
+                var rawKey = idx >= 0 ? part.Substring(0, idx) : part;
+                var key = Uri.UnescapeDataString(rawKey ?? string.Empty);
+
+                if (TrackingQueryKeys.Contains(key))
+                    return true;
+            }
+
+            return false;
+        }
+
         public bool ShouldCaptureResponse(IRequest request, IResponse response)
+        {
+            return ShouldCaptureResponse(CreateRequestSnapshot(request), CreateResponseSnapshot(response));
+        }
+
+        private bool ShouldCaptureResponse(RequestSnapshot request, ResponseSnapshot response)
         {
             if (!ShouldCache(request))
                 return false;
@@ -184,7 +272,10 @@ namespace CefClient.Handler
 
         public bool ShouldSaveResponse(IRequest request, IResponse response, long bodyLength)
         {
-            if (!ShouldCaptureResponse(request, response))
+            var requestSnapshot = CreateRequestSnapshot(request);
+            var responseSnapshot = CreateResponseSnapshot(response);
+
+            if (!ShouldCaptureResponse(requestSnapshot, responseSnapshot))
                 return false;
 
             if (bodyLength <= 0)
@@ -201,44 +292,27 @@ namespace CefClient.Handler
             if (!ShouldCache(request))
                 return null;
 
+            return TryGetCacheByUrl(request.Url);
+        }
+
+        public bool TryGetHotCache(IRequest request, out byte[] bytes, out string mimeType)
+        {
+            bytes = null;
+            mimeType = null;
+
+            if (request == null || string.IsNullOrWhiteSpace(request.Url))
+                return false;
+
             var key = BuildCacheKey(request.Url);
+            HotCacheEntry entry;
+            if (!_hotCache.TryGetValue(key, out entry) || entry == null || entry.Bytes == null || entry.Bytes.Length == 0)
+                return false;
 
-            ResourceCacheItem item;
-
-            if (_memoryIndex.TryGetValue(key, out item))
-            {
-                if (IsCacheItemValid(item))
-                {
-                    item.LastHitAt = DateTime.Now;
-                    return item;
-                }
-
-                ResourceCacheItem removed;
-                _memoryIndex.TryRemove(key, out removed);
-            }
-
-            var metaPath = GetMetaPath(key);
-
-            if (!File.Exists(metaPath))
-                return null;
-
-            try
-            {
-                var json = File.ReadAllText(metaPath, Encoding.UTF8);
-                var diskItem = JsonConvert.DeserializeObject<ResourceCacheItem>(json);
-
-                if (diskItem == null || !IsCacheItemValid(diskItem))
-                    return null;
-
-                diskItem.LastHitAt = DateTime.Now;
-                _memoryIndex[key] = diskItem;
-
-                return diskItem;
-            }
-            catch
-            {
-                return null;
-            }
+            entry.LastHitAt = DateTime.Now;
+            entry.HitCount++;
+            bytes = entry.Bytes;
+            mimeType = entry.MimeType;
+            return true;
         }
 
         public void SaveAsync(IRequest request, IResponse response, byte[] bytes)
@@ -246,8 +320,21 @@ namespace CefClient.Handler
             if (request == null || response == null || bytes == null || bytes.Length == 0)
                 return;
 
-            var url = request.Url;
+            var requestSnapshot = CreateRequestSnapshot(request);
+            var responseSnapshot = CreateResponseSnapshot(response);
+
+            if (!ShouldSaveResponse(requestSnapshot, responseSnapshot, bytes.Length))
+                return;
+
+            var url = requestSnapshot.Url;
+            var mimeTypeFromResponse = responseSnapshot.MimeType;
+
+            if (string.IsNullOrWhiteSpace(url))
+                return;
+
             var key = BuildCacheKey(url);
+            System.Threading.Interlocked.Increment(ref _pendingWriteCount);
+            _pendingWriteCompleted.Reset();
 
             Task.Run(delegate
             {
@@ -257,13 +344,13 @@ namespace CefClient.Handler
 
                 try
                 {
-                    var old = TryGetCache(request);
+                    var old = TryGetCacheByUrl(url);
 
                     if (old != null)
                         return;
 
                     var ext = GetExtensionFromUrl(url);
-                    var mimeType = response.MimeType;
+                    var mimeType = mimeTypeFromResponse;
 
                     if (string.IsNullOrWhiteSpace(ext))
                     {
@@ -306,6 +393,7 @@ namespace CefClient.Handler
                     File.WriteAllText(metaPath, json, Encoding.UTF8);
 
                     _memoryIndex[key] = item;
+                    AddOrUpdateHotCache(key, bytes, item.MimeType);
                 }
                 catch
                 {
@@ -317,8 +405,202 @@ namespace CefClient.Handler
 
                     SemaphoreSlim removed;
                     _keyLocks.TryRemove(key, out removed);
+
+                    if (System.Threading.Interlocked.Decrement(ref _pendingWriteCount) == 0)
+                    {
+                        _pendingWriteCompleted.Set();
+                    }
                 }
             });
+        }
+
+        private void AddOrUpdateHotCache(string key, byte[] bytes, string mimeType)
+        {
+            if (string.IsNullOrWhiteSpace(key) || bytes == null || bytes.Length == 0)
+                return;
+
+            if (bytes.Length > 2 * 1024 * 1024)
+                return;
+
+            HotCacheEntry old;
+            if (_hotCache.TryGetValue(key, out old) && old?.Bytes != null)
+            {
+                Interlocked.Add(ref _hotCacheBytes, -old.Bytes.Length);
+            }
+
+            var entry = new HotCacheEntry
+            {
+                Bytes = bytes,
+                MimeType = mimeType,
+                LastHitAt = DateTime.Now,
+                HitCount = old == null ? 1 : old.HitCount + 1
+            };
+
+            _hotCache[key] = entry;
+            Interlocked.Add(ref _hotCacheBytes, bytes.Length);
+            TrimHotCacheIfNeeded();
+        }
+
+        private void TrimHotCacheIfNeeded()
+        {
+            while (_hotCache.Count > HotCacheMaxEntries || Interlocked.Read(ref _hotCacheBytes) > HotCacheMaxBytes)
+            {
+                string removeKey = null;
+                HotCacheEntry removeEntry = null;
+
+                foreach (var pair in _hotCache)
+                {
+                    var e = pair.Value;
+                    if (e == null)
+                        continue;
+
+                    if (removeEntry == null || e.HitCount < removeEntry.HitCount ||
+                        (e.HitCount == removeEntry.HitCount && e.LastHitAt < removeEntry.LastHitAt))
+                    {
+                        removeKey = pair.Key;
+                        removeEntry = e;
+                    }
+                }
+
+                if (removeKey == null)
+                    break;
+
+                HotCacheEntry removed;
+                if (_hotCache.TryRemove(removeKey, out removed) && removed?.Bytes != null)
+                {
+                    Interlocked.Add(ref _hotCacheBytes, -removed.Bytes.Length);
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+
+        public bool WaitForPendingWrites(int millisecondsTimeout)
+        {
+            if (millisecondsTimeout < 0)
+                millisecondsTimeout = 0;
+
+            if (System.Threading.Volatile.Read(ref _pendingWriteCount) == 0)
+                return true;
+
+            return _pendingWriteCompleted.Wait(millisecondsTimeout);
+        }
+
+        private bool ShouldSaveResponse(RequestSnapshot request, ResponseSnapshot response, long bodyLength)
+        {
+            if (!ShouldCaptureResponse(request, response))
+                return false;
+
+            if (bodyLength <= 0)
+                return false;
+
+            if (bodyLength > Options.MaxMemoryCaptureBytes)
+                return false;
+
+            return true;
+        }
+
+        private RequestSnapshot CreateRequestSnapshot(IRequest request)
+        {
+            if (request == null)
+                return null;
+
+            try
+            {
+                return new RequestSnapshot
+                {
+                    Url = request.Url,
+                    Method = request.Method,
+                    ResourceType = request.ResourceType.ToString(),
+                    IsRangeRequest = IsRangeRequest(request)
+                };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private ResponseSnapshot CreateResponseSnapshot(IResponse response)
+        {
+            if (response == null)
+                return null;
+
+            try
+            {
+                return new ResponseSnapshot
+                {
+                    StatusCode = response.StatusCode,
+                    MimeType = response.MimeType,
+                    Headers = CloneHeaders(response.Headers)
+                };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static NameValueCollection CloneHeaders(NameValueCollection headers)
+        {
+            if (headers == null)
+                return null;
+
+            var copy = new NameValueCollection(headers.Count, StringComparer.OrdinalIgnoreCase);
+
+            foreach (string key in headers.AllKeys)
+            {
+                copy[key] = headers[key];
+            }
+
+            return copy;
+        }
+
+        private ResourceCacheItem TryGetCacheByUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                return null;
+
+            var key = BuildCacheKey(url);
+
+            ResourceCacheItem item;
+
+            if (_memoryIndex.TryGetValue(key, out item))
+            {
+                if (IsCacheItemValid(item))
+                {
+                    item.LastHitAt = DateTime.Now;
+                    return item;
+                }
+
+                ResourceCacheItem removed;
+                _memoryIndex.TryRemove(key, out removed);
+            }
+
+            var metaPath = GetMetaPath(key);
+
+            if (!File.Exists(metaPath))
+                return null;
+
+            try
+            {
+                var json = File.ReadAllText(metaPath, Encoding.UTF8);
+                var diskItem = JsonConvert.DeserializeObject<ResourceCacheItem>(json);
+
+                if (diskItem == null || !IsCacheItemValid(diskItem))
+                    return null;
+
+                diskItem.LastHitAt = DateTime.Now;
+                _memoryIndex[key] = diskItem;
+
+                return diskItem;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         public bool IsRangeRequest(IRequest request)
