@@ -12,8 +12,12 @@ namespace CefClient
 {
     public class Program
     {
-
-
+        private static string GetBaseDataDirectory()
+        {
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var parent = Directory.GetParent(baseDir);
+            return parent == null ? baseDir : parent.FullName;
+        }
 
         [STAThread]
         public static int Main(string[] args)
@@ -31,6 +35,7 @@ namespace CefClient
                 CefCachePaths.RootCachePath = Path.Combine(baseDataDirectory, "User Data", consumerId);
                 CefCachePaths.GlobalCachePath = Path.Combine(baseDataDirectory, "Global");
             }
+
             Directory.CreateDirectory(CefCachePaths.RootCachePath);
             Directory.CreateDirectory(CefCachePaths.GlobalCachePath);
 
@@ -67,12 +72,6 @@ namespace CefClient
             settings.SetOffScreenRenderingBestPerformanceArgs();
             //settings.LogSeverity = LogSeverity.Disable;
             //settings.LogFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cef_debug.log");
-
-            
-            TaskScheduler.UnobservedTaskException += (sender, e) =>
-            {
-                e.SetObserved();
-            };
             var success = Cef.Initialize(settings, performDependencyCheck: true, browserProcessHandler: null);
             if (!success)
             {
@@ -104,7 +103,6 @@ namespace CefClient
                 {
                 }
             };
-
             Application.ApplicationExit += (sender, e) =>
             {
                 if (Cef.IsInitialized)
@@ -113,7 +111,6 @@ namespace CefClient
                     Cef.Shutdown();
                 }
             };
-
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new MainForm());
@@ -122,12 +119,7 @@ namespace CefClient
 
 
 
-        private static string GetBaseDataDirectory()
-        {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            var parent = Directory.GetParent(baseDir);
-            return parent == null ? baseDir : parent.FullName;
-        }
+
 
     }
 }
