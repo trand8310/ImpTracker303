@@ -2341,6 +2341,94 @@ namespace MainClient
             return Channel.CreateBounded<JToken>(options);
         }
 
+        private async Task WaitProducerConsumersAsync(int timeoutMs)
+        {
+            try
+            {
+                var waitTasks = new List<Task>();
+                if (this.producerTask != null) waitTasks.Add(this.producerTask);
+                if (this.consumerTasks != null && this.consumerTasks.Count > 0) waitTasks.AddRange(this.consumerTasks);
+                if (waitTasks.Count > 0)
+                {
+                    await Task.WhenAny(Task.WhenAll(waitTasks), Task.Delay(timeoutMs));
+                }
+            }
+            catch (Exception ex)
+            {
+                LogWriteLine(ex.Message);
+            }
+        }
+
+        private Task StartProducerTask()
+        {
+            return Task.Factory.StartNew(async () =>
+            {
+                try
+                {
+                    while (!this.cts.Token.IsCancellationRequested)
+                    {
+                        if (applicationstop || applicationrestart)
+                        {
+                            LogWriteLine("停止获取任务");
+                            break;
+                        }
+                        var content = CommonHelper.HttpGet($"{setting.TaskApiUrl}?type=1&action=getTask&task={setting.TaskIdentify}&test=0&_t={System.DateTime.Now.Ticks}");
+                        if (!string.IsNullOrWhiteSpace(content))
+                        {
+                            if (content.Equals("empty"))
+                            {
+                                sync.Post((p) => { this.taskInfoListView.Items.Clear(); }, null);
+                                LogWriteLine($"共取到[0]条任务");
+                            }
+                            else
+                            {
+                                try
+                                {
+                                    var tasks = (JObject)JsonConvert.DeserializeObject(content);
+                                    int taskCount = tasks["task"].Count();
+                                    if (taskCount > 0)
+                                    {
+                                        if (setting.Multiple > 1)
+                                        {
+                                            for (int i = 0; i < setting.Multiple; i++)
+                                            {
+                                                foreach (var task in tasks["task"])
+                                                {
+                                                    await taskOfList.Writer.WriteAsync(task, this.cts.Token);
+                                                }
+                                            }
+                                        }
+                                        else
+                                        {
+                                            foreach (var task in tasks["task"])
+                                            {
+                                                await taskOfList.Writer.WriteAsync(task, this.cts.Token);
+                                            }
+                                        }
+                                        AddTaskInfo(tasks["task"]);
+                                        LogWriteLine($"获取[{taskCount}]条任务");
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Debug.WriteLine(ex.Message);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            LogWriteLine("获取任务");
+                        }
+                        SpinWait.SpinUntil(() => this.cts.Token.IsCancellationRequested, setting.GetTaskInterval);
+                    }
+                }
+                finally
+                {
+                    this.taskOfList.Writer.TryComplete();
+                }
+            }, cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
+        }
+
         private void buttonStart_Click(object sender, EventArgs e)
         {
             if (buttonStart.Text.Equals("停止"))
@@ -2361,20 +2449,7 @@ namespace MainClient
                         sw.Stop();
                         this.TopMost = false;
                     }, null);
-                    try
-                    {
-                        var waitTasks = new List<Task>();
-                        if (this.producerTask != null) waitTasks.Add(this.producerTask);
-                        if (this.consumerTasks != null && this.consumerTasks.Count > 0) waitTasks.AddRange(this.consumerTasks);
-                        if (waitTasks.Count > 0)
-                        {
-                            await Task.WhenAny(Task.WhenAll(waitTasks), Task.Delay(8 * 1000));
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        LogWriteLine(ex.Message);
-                    }
+                    await WaitProducerConsumersAsync(8 * 1000);
                     if (this.processOfList.Count() > 0)
                     {
                         foreach (var p in this.processOfList.Values)
@@ -2457,69 +2532,7 @@ namespace MainClient
             });
 
             #region 获取任务
-            this.producerTask = Task.Factory.StartNew(() =>
-            {
-                while (!this.cts.Token.IsCancellationRequested)
-                {
-                    if (applicationstop || applicationrestart)
-                    {
-                        LogWriteLine("停止获取任务");
-                        break;
-                    }
-                    var content = CommonHelper.HttpGet($"{setting.TaskApiUrl}?type=1&action=getTask&task={setting.TaskIdentify}&test=0&_t={System.DateTime.Now.Ticks}");
-                    if (!string.IsNullOrWhiteSpace(content))
-                    {
-                        if (content.Equals("empty"))
-                        {
-                            sync.Post((p) =>
-                            {
-                                this.taskInfoListView.Items.Clear();
-                            }, null);
-                            LogWriteLine($"共取到[0]条任务");
-                        }
-                        else
-                        {
-                            try
-                            {
-                                var tasks = (JObject)JsonConvert.DeserializeObject(content);
-                                int taskCount = tasks["task"].Count();
-                                if (taskCount > 0)
-                                {
-                                    if (setting.Multiple > 1)
-                                    {
-                                        for (int i = 0; i < setting.Multiple; i++)
-                                        {
-                                            foreach (var task in tasks["task"])
-                                            {
-                                                taskOfList.Writer.WriteAsync(task, this.cts.Token).AsTask().GetAwaiter().GetResult();
-                                            }
-                                        }
-                                    }
-                                    else
-                                    {
-                                        foreach (var task in tasks["task"])
-                                        {
-                                            taskOfList.Writer.WriteAsync(task, this.cts.Token).AsTask().GetAwaiter().GetResult();
-                                        }
-                                    }
-                                    AddTaskInfo(tasks["task"]);
-                                    LogWriteLine($"获取[{taskCount}]条任务");
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Debug.WriteLine(ex.Message);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        LogWriteLine("获取任务");
-                    }
-                    SpinWait.SpinUntil(() => this.cts.Token.IsCancellationRequested, setting.GetTaskInterval);
-                }
-                this.taskOfList.Writer.TryComplete();
-            }, cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            this.producerTask = StartProducerTask();
             #endregion
 
             #region 执行任务
