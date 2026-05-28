@@ -21,6 +21,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Schedulers;
 using System.Web;
@@ -73,7 +74,9 @@ namespace MainClient
         private ProxyChecker.ProxyTester _ipTester = new ProxyChecker.ProxyTester();
         private Stopwatch sw = new Stopwatch();
         private TaskFactory taskFactory = null;
-        private BlockingCollection<JToken> taskOfList = null;
+        private Channel<JToken> taskOfList = null;
+        private Task producerTask = null;
+        private List<Task> consumerTasks = new List<Task>();
         //ANDROID 设备参数
         private ConcurrentQueue<JToken> android_dev_queues = new ConcurrentQueue<JToken>();
         //IOS 设备参数
@@ -2279,18 +2282,14 @@ namespace MainClient
                     if (!string.IsNullOrWhiteSpace(tasklist_dat) && System.IO.File.Exists(tasklist_dat))
                     {
                         var content = System.IO.File.ReadAllText(tasklist_dat);
-                        if (setting.Multiple > 1)
-                        {
-                            this.taskOfList = new BlockingCollection<JToken>(3 + setting.Multiple);
-                        }
-                        else
-                        {
-                            this.taskOfList = new BlockingCollection<JToken>(3);
-                        }
+                        this.taskOfList = CreateTaskChannel();
                         var values = JsonConvert.DeserializeObject<List<JToken>>(content);
                         foreach (var _task in values)
                         {
-                            this.taskOfList.Add(_task);
+                            while (!this.taskOfList.Writer.TryWrite(_task))
+                            {
+                                Thread.Sleep(50);
+                            }
                         }
                         try
                         {
@@ -2326,6 +2325,22 @@ namespace MainClient
 
         //IP列列
         private ConcurrentDictionary<int, BlockingCollection<string>> taskIpDict = new ConcurrentDictionary<int, BlockingCollection<string>>();
+        private int GetTaskQueueCapacity()
+        {
+            return setting.Multiple > 1 ? 3 + setting.Multiple : 3;
+        }
+
+        private Channel<JToken> CreateTaskChannel()
+        {
+            var options = new BoundedChannelOptions(GetTaskQueueCapacity())
+            {
+                SingleWriter = true,
+                SingleReader = false,
+                FullMode = BoundedChannelFullMode.Wait
+            };
+            return Channel.CreateBounded<JToken>(options);
+        }
+
         private void buttonStart_Click(object sender, EventArgs e)
         {
             if (buttonStart.Text.Equals("停止"))
@@ -2341,11 +2356,25 @@ namespace MainClient
                     await Task.Delay(5 * 1000);
                     sync.Post((p) =>
                     {
+                        this.taskOfList?.Writer.TryComplete();
                         this.cts.Cancel();
                         sw.Stop();
                         this.TopMost = false;
                     }, null);
-                    await Task.Delay(5 * 1000);
+                    try
+                    {
+                        var waitTasks = new List<Task>();
+                        if (this.producerTask != null) waitTasks.Add(this.producerTask);
+                        if (this.consumerTasks != null && this.consumerTasks.Count > 0) waitTasks.AddRange(this.consumerTasks);
+                        if (waitTasks.Count > 0)
+                        {
+                            await Task.WhenAny(Task.WhenAll(waitTasks), Task.Delay(8 * 1000));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LogWriteLine(ex.Message);
+                    }
                     if (this.processOfList.Count() > 0)
                     {
                         foreach (var p in this.processOfList.Values)
@@ -2408,17 +2437,7 @@ namespace MainClient
             applicationstop = false;
             UpdateAppSetting();
 
-            if (this.taskOfList == null || this.taskOfList.Count() == 0)
-            {
-                if (setting.Multiple > 1)
-                {
-                    this.taskOfList = new BlockingCollection<JToken>(3 + setting.Multiple);
-                }
-                else
-                {
-                    this.taskOfList = new BlockingCollection<JToken>(3);
-                }
-            }
+            this.taskOfList = this.taskOfList ?? CreateTaskChannel();
 
             this.selfWndHandle = (int)this.Handle;
             this.processOfList = new System.Collections.Concurrent.ConcurrentDictionary<string, ProcessItem>();
@@ -2438,7 +2457,7 @@ namespace MainClient
             });
 
             #region 获取任务
-            var produce = Task.Factory.StartNew(() =>
+            this.producerTask = Task.Factory.StartNew(() =>
             {
                 while (!this.cts.Token.IsCancellationRequested)
                 {
@@ -2472,7 +2491,7 @@ namespace MainClient
                                         {
                                             foreach (var task in tasks["task"])
                                             {
-                                                taskOfList.Add(task, this.cts.Token);
+                                                taskOfList.Writer.WriteAsync(task, this.cts.Token).AsTask().GetAwaiter().GetResult();
                                             }
                                         }
                                     }
@@ -2480,7 +2499,7 @@ namespace MainClient
                                     {
                                         foreach (var task in tasks["task"])
                                         {
-                                            taskOfList.Add(task, this.cts.Token);
+                                            taskOfList.Writer.WriteAsync(task, this.cts.Token).AsTask().GetAwaiter().GetResult();
                                         }
                                     }
                                     AddTaskInfo(tasks["task"]);
@@ -2499,11 +2518,13 @@ namespace MainClient
                     }
                     SpinWait.SpinUntil(() => this.cts.Token.IsCancellationRequested, setting.GetTaskInterval);
                 }
+                this.taskOfList.Writer.TryComplete();
             }, cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             #endregion
 
             #region 执行任务
 
+            this.consumerTasks.Clear();
             for (int parallelIndex = 1; parallelIndex <= setting.MaximumParallel; parallelIndex++)
             {
                 var consume = taskFactory.StartNew(async (index) =>
@@ -2519,7 +2540,11 @@ namespace MainClient
 
                     while (!this.cts.IsCancellationRequested && !applicationrestart)
                     {
-                        if (taskOfList.TryTake(out var jobVal, 1000, this.cts.Token))
+                        if (!await taskOfList.Reader.WaitToReadAsync(this.cts.Token))
+                        {
+                            break;
+                        }
+                        if (taskOfList.Reader.TryRead(out var jobVal))
                         {
                             var job = (JObject)jobVal;
                             if (jobFirst)
@@ -3029,10 +3054,6 @@ namespace MainClient
                             //await Task.Delay(1000, this.cts.Token);
                             SpinWait.SpinUntil(() => this.cts.IsCancellationRequested, setting.UVInterval);
                         }
-                        else
-                        {
-                            await Task.Delay(1000, this.cts.Token);
-                        }
                     }
 
                     if (process != null && !process.HasExited)
@@ -3048,6 +3069,7 @@ namespace MainClient
                         }
                     }
                 }, parallelIndex, this.cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+                this.consumerTasks.Add(consume.Unwrap());
             }
 
             #endregion
@@ -3117,14 +3139,19 @@ namespace MainClient
 
                 string tasklist_dat = string.Empty;
 
-                if (taskOfList.Count() > 0)
+                var remainingTasks = new List<JToken>();
+                while (taskOfList != null && taskOfList.Reader.TryRead(out var pendingTask))
+                {
+                    remainingTasks.Add(pendingTask);
+                }
+                if (remainingTasks.Count > 0)
                 {
                     ///暂时存任务列表
                     logger.Info("暂时存任务列表");
                     try
                     {
                         tasklist_dat = $"tasklist_dat{System.DateTime.Now.Ticks}.tmp";
-                        System.IO.File.WriteAllText(tasklist_dat, JsonConvert.SerializeObject(taskOfList));
+                        System.IO.File.WriteAllText(tasklist_dat, JsonConvert.SerializeObject(remainingTasks));
 
                     }
                     catch (Exception ex)
