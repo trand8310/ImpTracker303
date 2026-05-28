@@ -3038,67 +3038,25 @@ namespace MainClient
             #endregion
 
             #region 守护任务
-            int detected_lock = 0;
             var defends = Task.Factory.StartNew(async () =>
             {
-                int appRandomSeek = setting.MainResetInterval * 60 + new Random(Guid.NewGuid().GetHashCode()).Next(-30, 30);
-
-                while (true)
+                var restartGuard = new AppRestartGuard(
+                    setting.MainResetInterval,
+                    setting.SendSms,
+                    setting.SendSmsTimeout,
+                    LogWriteLine,
+                    SendSms);
+                await restartGuard.WaitForRestartAsync(this.cts.Token, setting.SmsName, setting.SmsPhone);
+                if (this.cts.IsCancellationRequested)
                 {
-                    //                    #region 更新检测
-                    //#if !DEBUG
-                    //                    if (!string.IsNullOrWhiteSpace(setting.UpdateApiUrl) && CheckUpdateOnly())
-                    //                    {
-                    //                        applicationrestart = true;
-                    //                        LogWriteLine("检测到更新,系统将重启应用");
-                    //                        sync.Post((p) =>
-                    //                        {
-                    //                            this.buttonStart.Enabled = false;
-                    //                            this.button1.Enabled = false;
-                    //                        }, null);
-                    //                        break;
-                    //                    }
-                    //#endif
-                    //                    #endregion
-
-                    var process = Process.GetCurrentProcess();
-                    var totalSeconds = (int)(((TimeSpan)(System.DateTime.Now - process.StartTime)).TotalSeconds);
-                    if (setting.MainResetInterval > 0 && totalSeconds > appRandomSeek)
-                    {
-                        applicationrestart = true;
-                        LogWriteLine("将重启应用程序");
-                        sync.Post((p) =>
-                        {
-                            detected_lock = 1;
-                            this.buttonStart.Enabled = false;
-                            this.button1.Enabled = false;
-                        }, null);
-                        break;
-                    }
-                    SpinWait.SpinUntil(() => this.cts.IsCancellationRequested || applicationrestart, 60 * 1000);
+                    return;
                 }
-                if (setting.SendSms)
+                applicationrestart = true;
+                sync.Post((p) =>
                 {
-                    await Task.Factory.StartNew(async () =>
-                    {
-                        while (true)
-                        {
-                            detected_lock++;
-                            await Task.Delay(1000);
-
-                            if (detected_lock > setting.SendSmsTimeout * 60)
-                            {
-                                detected_lock = 1;
-                                SendSms(setting.SmsName, setting.SmsPhone);
-                                LogWriteLine("检测到超时,发送短信");
-                                //超过120秒还未重启重功,发送短信
-                                await Task.Delay(TimeSpan.FromMinutes(30));
-
-                            }
-                        }
-                    });
-                }
-
+                    this.buttonStart.Enabled = false;
+                    this.button1.Enabled = false;
+                }, null);
 
                 string tasklist_dat = string.Empty;
 
