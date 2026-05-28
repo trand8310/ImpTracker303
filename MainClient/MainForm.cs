@@ -73,10 +73,8 @@ namespace MainClient
         private IpHelper _ipHelper;
         private ProxyChecker.ProxyTester _ipTester = new ProxyChecker.ProxyTester();
         private Stopwatch sw = new Stopwatch();
-        private TaskFactory taskFactory = null;
-        private Channel<JToken> taskOfList = null;
-        private Task producerTask = null;
-        private List<Task> consumerTasks = new List<Task>();
+        private TaskDispatchManager taskDispatchManager = null;
+        private List<JToken> pendingTasks = new List<JToken>();
         //ANDROID 设备参数
         private ConcurrentQueue<JToken> android_dev_queues = new ConcurrentQueue<JToken>();
         //IOS 设备参数
@@ -2282,14 +2280,10 @@ namespace MainClient
                     if (!string.IsNullOrWhiteSpace(tasklist_dat) && System.IO.File.Exists(tasklist_dat))
                     {
                         var content = System.IO.File.ReadAllText(tasklist_dat);
-                        this.taskOfList = CreateTaskChannel();
                         var values = JsonConvert.DeserializeObject<List<JToken>>(content);
-                        foreach (var _task in values)
+                        if (values != null)
                         {
-                            while (!this.taskOfList.Writer.TryWrite(_task))
-                            {
-                                Thread.Sleep(50);
-                            }
+                            this.pendingTasks.AddRange(values);
                         }
                         try
                         {
@@ -2330,17 +2324,6 @@ namespace MainClient
             return setting.Multiple > 1 ? 3 + setting.Multiple : 3;
         }
 
-        private Channel<JToken> CreateTaskChannel()
-        {
-            var options = new BoundedChannelOptions(GetTaskQueueCapacity())
-            {
-                SingleWriter = true,
-                SingleReader = false,
-                FullMode = BoundedChannelFullMode.Wait
-            };
-            return Channel.CreateBounded<JToken>(options);
-        }
-
         private void buttonStart_Click(object sender, EventArgs e)
         {
             if (buttonStart.Text.Equals("停止"))
@@ -2361,19 +2344,9 @@ namespace MainClient
                         sw.Stop();
                         this.TopMost = false;
                     }, null);
-                    try
+                    if (this.taskDispatchManager != null)
                     {
-                        var waitTasks = new List<Task>();
-                        if (this.producerTask != null) waitTasks.Add(this.producerTask);
-                        if (this.consumerTasks != null && this.consumerTasks.Count > 0) waitTasks.AddRange(this.consumerTasks);
-                        if (waitTasks.Count > 0)
-                        {
-                            await Task.WhenAny(Task.WhenAll(waitTasks), Task.Delay(8 * 1000));
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        LogWriteLine(ex.Message);
+                        await this.taskDispatchManager.StopAsync(8 * 1000);
                     }
                     if (this.processOfList.Count() > 0)
                     {
@@ -2437,7 +2410,7 @@ namespace MainClient
             applicationstop = false;
             UpdateAppSetting();
 
-            this.taskOfList = this.taskOfList ?? CreateTaskChannel();
+            this.taskDispatchManager = new TaskDispatchManager(GetTaskQueueCapacity());
 
             this.selfWndHandle = (int)this.Handle;
             this.processOfList = new System.Collections.Concurrent.ConcurrentDictionary<string, ProcessItem>();
@@ -2446,7 +2419,6 @@ namespace MainClient
             buttonStart.ForeColor = Color.Blue;
             sw.Reset();
             sw.Start();
-            taskFactory = new TaskFactory(new LimitedConcurrencyLevelTaskScheduler(setting.MaximumLimitedConcurrency));
             this.cts = new CancellationTokenSource();
             this.cts.Token.Register(() =>
             {
@@ -2456,10 +2428,15 @@ namespace MainClient
                 this.buttonStart.Enabled = false;
             });
 
-            #region 获取任务
-            this.producerTask = Task.Factory.StartNew(() =>
+            #region 获取任务及执行任务
+            foreach (var pendingTask in this.pendingTasks)
             {
-                while (!this.cts.Token.IsCancellationRequested)
+                this.taskDispatchManager.Writer.TryWrite(pendingTask);
+            }
+            this.pendingTasks.Clear();
+            this.taskDispatchManager.Start(setting.MaximumParallel, async (writer, token) =>
+            {
+                while (!token.IsCancellationRequested)
                 {
                     if (applicationstop || applicationrestart)
                     {
@@ -2471,10 +2448,7 @@ namespace MainClient
                     {
                         if (content.Equals("empty"))
                         {
-                            sync.Post((p) =>
-                            {
-                                this.taskInfoListView.Items.Clear();
-                            }, null);
+                            sync.Post((p) => { this.taskInfoListView.Items.Clear(); }, null);
                             LogWriteLine($"共取到[0]条任务");
                         }
                         else
@@ -2491,7 +2465,7 @@ namespace MainClient
                                         {
                                             foreach (var task in tasks["task"])
                                             {
-                                                taskOfList.Writer.WriteAsync(task, this.cts.Token).AsTask().GetAwaiter().GetResult();
+                                                await writer.WriteAsync(task, token);
                                             }
                                         }
                                     }
@@ -2499,7 +2473,7 @@ namespace MainClient
                                     {
                                         foreach (var task in tasks["task"])
                                         {
-                                            taskOfList.Writer.WriteAsync(task, this.cts.Token).AsTask().GetAwaiter().GetResult();
+                                            await writer.WriteAsync(task, token);
                                         }
                                     }
                                     AddTaskInfo(tasks["task"]);
@@ -2516,20 +2490,11 @@ namespace MainClient
                     {
                         LogWriteLine("获取任务");
                     }
-                    SpinWait.SpinUntil(() => this.cts.Token.IsCancellationRequested, setting.GetTaskInterval);
+                    SpinWait.SpinUntil(() => token.IsCancellationRequested, setting.GetTaskInterval);
                 }
-                this.taskOfList.Writer.TryComplete();
-            }, cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-            #endregion
-
-            #region 执行任务
-
-            this.consumerTasks.Clear();
-            for (int parallelIndex = 1; parallelIndex <= setting.MaximumParallel; parallelIndex++)
-            {
-                var consume = taskFactory.StartNew(async (index) =>
+            }, async (consumerId, reader, token) =>
                 {
-                    var consumerId = Convert.ToInt32(index);
+
                     int jobTotals = 0;
                     int jobTimeRandomSeed = setting.SubResetInterval * 60 + new Random(Guid.NewGuid().GetHashCode()).Next(-30, 30);
 
@@ -2538,13 +2503,13 @@ namespace MainClient
                     ProcessItem client = null;
                     Process process = null;
 
-                    while (!this.cts.IsCancellationRequested && !applicationrestart)
+                    while (!token.IsCancellationRequested && !applicationrestart)
                     {
-                        if (!await taskOfList.Reader.WaitToReadAsync(this.cts.Token))
+                        if (!await reader.WaitToReadAsync(token))
                         {
                             break;
                         }
-                        if (taskOfList.Reader.TryRead(out var jobVal))
+                        if (reader.TryRead(out var jobVal))
                         {
                             var job = (JObject)jobVal;
                             if (jobFirst)
@@ -3068,9 +3033,7 @@ namespace MainClient
                             CommonHelper.KillProcExec(process.Id);
                         }
                     }
-                }, parallelIndex, this.cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-                this.consumerTasks.Add(consume.Unwrap());
-            }
+            }, this.cts.Token);
 
             #endregion
 
@@ -3139,11 +3102,7 @@ namespace MainClient
 
                 string tasklist_dat = string.Empty;
 
-                var remainingTasks = new List<JToken>();
-                while (taskOfList != null && taskOfList.Reader.TryRead(out var pendingTask))
-                {
-                    remainingTasks.Add(pendingTask);
-                }
+                var remainingTasks = this.taskDispatchManager != null ? this.taskDispatchManager.DrainPending() : new List<JToken>();
                 if (remainingTasks.Count > 0)
                 {
                     ///暂时存任务列表
