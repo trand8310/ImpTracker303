@@ -33,6 +33,8 @@ namespace CefClient.Handler
 
         private readonly ConcurrentDictionary<string, ResourceCacheItem> _memoryIndex;
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _keyLocks;
+        private int _pendingWriteCount;
+        private readonly ManualResetEventSlim _pendingWriteCompleted = new ManualResetEventSlim(true);
 
         private static readonly HashSet<string> ImageExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -250,6 +252,8 @@ namespace CefClient.Handler
                 return;
 
             var key = BuildCacheKey(url);
+            System.Threading.Interlocked.Increment(ref _pendingWriteCount);
+            _pendingWriteCompleted.Reset();
 
             Task.Run(delegate
             {
@@ -319,8 +323,24 @@ namespace CefClient.Handler
 
                     SemaphoreSlim removed;
                     _keyLocks.TryRemove(key, out removed);
+
+                    if (System.Threading.Interlocked.Decrement(ref _pendingWriteCount) == 0)
+                    {
+                        _pendingWriteCompleted.Set();
+                    }
                 }
             });
+        }
+
+        public bool WaitForPendingWrites(int millisecondsTimeout)
+        {
+            if (millisecondsTimeout < 0)
+                millisecondsTimeout = 0;
+
+            if (System.Threading.Volatile.Read(ref _pendingWriteCount) == 0)
+                return true;
+
+            return _pendingWriteCompleted.Wait(millisecondsTimeout);
         }
 
         private bool ShouldSaveResponse(RequestSnapshot request, ResponseSnapshot response, long bodyLength)
