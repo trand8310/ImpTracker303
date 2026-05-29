@@ -122,7 +122,7 @@
             groupBox1.Margin = new Padding(5, 2, 5, 2);
             groupBox1.Name = "groupBox1";
             groupBox1.Padding = new Padding(5, 2, 5, 2);
-            groupBox1.Size = new Size(542, 355);
+            groupBox1.Size = new Size(542, 418);
             groupBox1.TabIndex = 1;
             groupBox1.TabStop = false;
             groupBox1.Text = "任务列表";
@@ -136,7 +136,7 @@
             taskInfoListView.Location = new Point(5, 25);
             taskInfoListView.Margin = new Padding(5, 2, 5, 2);
             taskInfoListView.Name = "taskInfoListView";
-            taskInfoListView.Size = new Size(532, 328);
+            taskInfoListView.Size = new Size(532, 391);
             taskInfoListView.TabIndex = 0;
             taskInfoListView.UseCompatibleStateImageBehavior = false;
             taskInfoListView.View = View.Details;
@@ -820,7 +820,7 @@
             LogTextBox.Multiline = true;
             LogTextBox.Name = "LogTextBox";
             LogTextBox.ScrollBars = ScrollBars.Both;
-            LogTextBox.Size = new Size(757, 328);
+            LogTextBox.Size = new Size(757, 391);
             LogTextBox.TabIndex = 3;
             LogTextBox.WordWrap = false;
             // 
@@ -832,7 +832,7 @@
             groupBox3.Margin = new Padding(5, 2, 5, 2);
             groupBox3.Name = "groupBox3";
             groupBox3.Padding = new Padding(5, 2, 5, 2);
-            groupBox3.Size = new Size(767, 355);
+            groupBox3.Size = new Size(767, 418);
             groupBox3.TabIndex = 4;
             groupBox3.TabStop = false;
             groupBox3.Text = "日志";
@@ -845,18 +845,18 @@
             LogDetailTextBox.Multiline = true;
             LogDetailTextBox.Name = "LogDetailTextBox";
             LogDetailTextBox.ScrollBars = ScrollBars.Both;
-            LogDetailTextBox.Size = new Size(1299, 80);
+            LogDetailTextBox.Size = new Size(1299, 271);
             LogDetailTextBox.TabIndex = 3;
             // 
             // groupBox4
             // 
             groupBox4.Controls.Add(LogDetailTextBox);
             groupBox4.Dock = DockStyle.Bottom;
-            groupBox4.Location = new Point(0, 817);
+            groupBox4.Location = new Point(0, 880);
             groupBox4.Margin = new Padding(5, 2, 5, 2);
             groupBox4.Name = "groupBox4";
             groupBox4.Padding = new Padding(5, 2, 5, 2);
-            groupBox4.Size = new Size(1309, 107);
+            groupBox4.Size = new Size(1309, 298);
             groupBox4.TabIndex = 4;
             groupBox4.TabStop = false;
             groupBox4.Text = "详细日志";
@@ -865,7 +865,7 @@
             // 
             AutoScaleDimensions = new SizeF(144F, 144F);
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(1309, 924);
+            ClientSize = new Size(1309, 1178);
             Controls.Add(groupBox3);
             Controls.Add(groupBox1);
             Controls.Add(groupBox2);

@@ -19,7 +19,10 @@ namespace MainClient.Common
 
     public sealed class RunnerStateChangedEventArgs : EventArgs
     {
-        public RunnerStateChangedEventArgs(RunnerState oldState, RunnerState newState, Exception? exception = null)
+        public RunnerStateChangedEventArgs(
+            RunnerState oldState,
+            RunnerState newState,
+            Exception? exception = null)
         {
             OldState = oldState;
             NewState = newState;
@@ -38,7 +41,10 @@ namespace MainClient.Common
 
     public sealed class DispatchTaskEventArgs : EventArgs
     {
-        public DispatchTaskEventArgs(DispatchTaskEventKind kind, JToken task, int? consumerId = null)
+        public DispatchTaskEventArgs(
+            DispatchTaskEventKind kind,
+            JToken task,
+            int? consumerId = null)
         {
             Kind = kind;
             Task = task;
@@ -61,14 +67,18 @@ namespace MainClient.Common
     {
         private readonly object _syncRoot = new object();
 
-        private readonly Channel<JToken> _channel;
-        private readonly ChannelReader<JToken> _notifyingReader;
-        private readonly ChannelWriter<JToken> _notifyingWriter;
+        private readonly int _capacity;
+
+        private Channel<JToken> _channel;
+        private ChannelReader<JToken> _notifyingReader;
+        private ChannelWriter<JToken> _notifyingWriter;
+
         private readonly List<Task> _consumerTasks = new List<Task>();
 
         private Task? _producerTask;
         private CancellationTokenSource? _internalCts;
         private CancellationTokenRegistration _externalTokenRegistration;
+
         private RunnerState _state = RunnerState.Stopped;
 
         public TaskDispatchManager(
@@ -79,20 +89,12 @@ namespace MainClient.Common
             if (capacity <= 0)
                 throw new ArgumentOutOfRangeException(nameof(capacity), "capacity 必须大于 0");
 
+            _capacity = capacity;
+
             OnLog = log;
             OnError = error;
 
-            var options = new BoundedChannelOptions(capacity)
-            {
-                SingleWriter = true,
-                SingleReader = false,
-                FullMode = BoundedChannelFullMode.Wait,
-                AllowSynchronousContinuations = false
-            };
-
-            _channel = Channel.CreateBounded<JToken>(options);
-            _notifyingReader = new NotifyingChannelReader(_channel.Reader, RaiseTaskDequeued);
-            _notifyingWriter = new NotifyingChannelWriter(_channel.Writer, RaiseTaskEnqueued);
+            CreateNewChannel();
         }
 
         public event EventHandler<RunnerStateChangedEventArgs>? StateChanged;
@@ -150,7 +152,16 @@ namespace MainClient.Common
                 if (_state == RunnerState.Running || _state == RunnerState.Stopping)
                     throw new InvalidOperationException("TaskDispatchManager 已经启动，不能重复 Start。");
 
+                // 关键修复：
+                // 每次 Start 都重新创建 Channel。
+                // 因为 StopAsync 里会 TryComplete，已关闭的 Channel 不能再次写入。
+                CreateNewChannel();
+
+                _externalTokenRegistration.Dispose();
+
+                _internalCts?.Dispose();
                 _internalCts = new CancellationTokenSource();
+
                 SetState(RunnerState.Running);
 
                 if (externalToken.CanBeCanceled)
@@ -164,20 +175,52 @@ namespace MainClient.Common
 
                 var token = _internalCts.Token;
 
-                _producerTask = Task.Run(() => RunProducerAsync(producer, token), CancellationToken.None);
+                _producerTask = Task.Run(
+                    () => RunProducerAsync(producer, token),
+                    CancellationToken.None);
 
                 _consumerTasks.Clear();
 
                 for (int i = 1; i <= consumerCount; i++)
                 {
                     int consumerId = i;
-                    var reader = new NotifyingChannelReader(_channel.Reader, item => RaiseTaskDequeued(item, consumerId));
-                    var task = Task.Run(() => RunConsumerAsync(consumerId, reader, consumer, token), CancellationToken.None);
+
+                    var reader = new NotifyingChannelReader(
+                        _channel.Reader,
+                        RaiseTaskDequeued,
+                        consumerId);
+
+                    var task = Task.Run(
+                        () => RunConsumerAsync(consumerId, reader, consumer, token),
+                        CancellationToken.None);
+
                     _consumerTasks.Add(task);
                 }
 
                 TryLog($"TaskDispatchManager 已启动，consumerCount={consumerCount}");
             }
+        }
+
+        private void CreateNewChannel()
+        {
+            var options = new BoundedChannelOptions(_capacity)
+            {
+                SingleWriter = true,
+                SingleReader = false,
+                FullMode = BoundedChannelFullMode.Wait,
+                AllowSynchronousContinuations = false
+            };
+
+            _channel = Channel.CreateBounded<JToken>(options);
+
+            _notifyingReader = new NotifyingChannelReader(
+                _channel.Reader,
+                RaiseTaskDequeued,
+                null);
+
+            _notifyingWriter = new NotifyingChannelWriter(
+                _channel.Writer,
+                RaiseTaskEnqueued);
         }
 
         private async Task RunProducerAsync(
@@ -189,19 +232,21 @@ namespace MainClient.Common
                 await producer(_notifyingWriter, token).ConfigureAwait(false);
 
                 TryLog("Producer 已正常结束。");
+
+                _channel.Writer.TryComplete();
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
                 TryLog("Producer 已取消。");
+
+                _channel.Writer.TryComplete();
             }
             catch (Exception ex)
             {
                 Fault(ex);
-                _channel.Writer.TryComplete(ex);
-                return;
-            }
 
-            _channel.Writer.TryComplete();
+                _channel.Writer.TryComplete(ex);
+            }
         }
 
         private async Task RunConsumerAsync(
@@ -228,8 +273,12 @@ namespace MainClient.Common
             }
             catch (Exception ex)
             {
-                Fault(new Exception($"Consumer-{consumerId} 异常退出。", ex));
+                var wrapped = new Exception($"Consumer-{consumerId} 异常退出。", ex);
+
+                Fault(wrapped);
+
                 TryCancel();
+
                 _channel.Writer.TryComplete(ex);
             }
         }
@@ -255,6 +304,9 @@ namespace MainClient.Common
                 TryLog("TaskDispatchManager 开始停止。");
 
                 TryCancel();
+
+                // 立即关闭 Writer。
+                // 这样 Reader 端能尽快结束等待。
                 _channel.Writer.TryComplete();
 
                 tasks = new List<Task>();
@@ -268,27 +320,31 @@ namespace MainClient.Common
 
             try
             {
-                var allTask = Task.WhenAll(tasks);
-                var delayTask = Task.Delay(timeoutMs);
-
-                var completedTask = await Task.WhenAny(allTask, delayTask).ConfigureAwait(false);
-
-                if (completedTask == delayTask)
+                if (tasks.Count > 0)
                 {
-                    TryLog($"TaskDispatchManager 停止超时，timeoutMs={timeoutMs}");
-                }
-                else
-                {
-                    try
-                    {
-                        await allTask.ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        Fault(ex);
-                    }
+                    var allTask = Task.WhenAll(tasks);
+                    var delayTask = Task.Delay(timeoutMs);
 
-                    TryLog("TaskDispatchManager 已全部停止。");
+                    var completedTask = await Task.WhenAny(allTask, delayTask)
+                        .ConfigureAwait(false);
+
+                    if (completedTask == delayTask)
+                    {
+                        TryLog($"TaskDispatchManager 停止超时，timeoutMs={timeoutMs}");
+                    }
+                    else
+                    {
+                        try
+                        {
+                            await allTask.ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            Fault(ex);
+                        }
+
+                        TryLog("TaskDispatchManager 已全部停止。");
+                    }
                 }
             }
             finally
@@ -349,6 +405,7 @@ namespace MainClient.Common
             lock (_syncRoot)
             {
                 oldState = _state;
+
                 if (oldState == newState)
                     return;
 
@@ -364,11 +421,16 @@ namespace MainClient.Common
             SetState(RunnerState.Faulted, ex);
         }
 
-        private void RaiseStateChanged(RunnerState oldState, RunnerState newState, Exception? exception)
+        private void RaiseStateChanged(
+            RunnerState oldState,
+            RunnerState newState,
+            Exception? exception)
         {
             try
             {
-                StateChanged?.Invoke(this, new RunnerStateChangedEventArgs(oldState, newState, exception));
+                StateChanged?.Invoke(
+                    this,
+                    new RunnerStateChangedEventArgs(oldState, newState, exception));
             }
             catch
             {
@@ -380,7 +442,10 @@ namespace MainClient.Common
         {
             try
             {
-                var args = new DispatchTaskEventArgs(DispatchTaskEventKind.Enqueued, item);
+                var args = new DispatchTaskEventArgs(
+                    DispatchTaskEventKind.Enqueued,
+                    item);
+
                 TaskReceived?.Invoke(this, args);
                 TaskEnqueued?.Invoke(this, args);
             }
@@ -394,7 +459,11 @@ namespace MainClient.Common
         {
             try
             {
-                var args = new DispatchTaskEventArgs(DispatchTaskEventKind.Dequeued, item, consumerId);
+                var args = new DispatchTaskEventArgs(
+                    DispatchTaskEventKind.Dequeued,
+                    item,
+                    consumerId);
+
                 TaskConsumed?.Invoke(this, args);
                 TaskDequeued?.Invoke(this, args);
             }
@@ -430,7 +499,8 @@ namespace MainClient.Common
 
         public async ValueTask DisposeAsync()
         {
-            await StopAsync(timeoutMs: 10_000, drainPending: false).ConfigureAwait(false);
+            await StopAsync(timeoutMs: 10_000, drainPending: false)
+                .ConfigureAwait(false);
         }
 
         private sealed class NotifyingChannelWriter : ChannelWriter<JToken>
@@ -438,29 +508,42 @@ namespace MainClient.Common
             private readonly ChannelWriter<JToken> _inner;
             private readonly Action<JToken> _onWritten;
 
-            public NotifyingChannelWriter(ChannelWriter<JToken> inner, Action<JToken> onWritten)
+            public NotifyingChannelWriter(
+                ChannelWriter<JToken> inner,
+                Action<JToken> onWritten)
             {
-                _inner = inner;
-                _onWritten = onWritten;
+                _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+                _onWritten = onWritten ?? throw new ArgumentNullException(nameof(onWritten));
             }
 
-            public override bool TryComplete(Exception? error = null) => _inner.TryComplete(error);
+            public override bool TryComplete(Exception? error = null)
+            {
+                return _inner.TryComplete(error);
+            }
 
             public override bool TryWrite(JToken item)
             {
                 var written = _inner.TryWrite(item);
+
                 if (written)
                     _onWritten(item);
 
                 return written;
             }
 
-            public override ValueTask<bool> WaitToWriteAsync(CancellationToken cancellationToken = default) =>
-                _inner.WaitToWriteAsync(cancellationToken);
-
-            public override async ValueTask WriteAsync(JToken item, CancellationToken cancellationToken = default)
+            public override ValueTask<bool> WaitToWriteAsync(
+                CancellationToken cancellationToken = default)
             {
-                await _inner.WriteAsync(item, cancellationToken).ConfigureAwait(false);
+                return _inner.WaitToWriteAsync(cancellationToken);
+            }
+
+            public override async ValueTask WriteAsync(
+                JToken item,
+                CancellationToken cancellationToken = default)
+            {
+                await _inner.WriteAsync(item, cancellationToken)
+                    .ConfigureAwait(false);
+
                 _onWritten(item);
             }
         }
@@ -468,12 +551,17 @@ namespace MainClient.Common
         private sealed class NotifyingChannelReader : ChannelReader<JToken>
         {
             private readonly ChannelReader<JToken> _inner;
-            private readonly Action<JToken> _onRead;
+            private readonly Action<JToken, int?> _onRead;
+            private readonly int? _consumerId;
 
-            public NotifyingChannelReader(ChannelReader<JToken> inner, Action<JToken> onRead)
+            public NotifyingChannelReader(
+                ChannelReader<JToken> inner,
+                Action<JToken, int?> onRead,
+                int? consumerId)
             {
-                _inner = inner;
-                _onRead = onRead;
+                _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+                _onRead = onRead ?? throw new ArgumentNullException(nameof(onRead));
+                _consumerId = consumerId;
             }
 
             public override Task Completion => _inner.Completion;
@@ -484,26 +572,37 @@ namespace MainClient.Common
 
             public override int Count => _inner.Count;
 
-            public override bool TryPeek(out JToken item) => _inner.TryPeek(out item);
-
-            public override async ValueTask<JToken> ReadAsync(CancellationToken cancellationToken = default)
+            public override bool TryPeek(out JToken item)
             {
-                var item = await _inner.ReadAsync(cancellationToken).ConfigureAwait(false);
-                _onRead(item);
+                return _inner.TryPeek(out item);
+            }
+
+            public override async ValueTask<JToken> ReadAsync(
+                CancellationToken cancellationToken = default)
+            {
+                var item = await _inner.ReadAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                _onRead(item, _consumerId);
+
                 return item;
             }
 
             public override bool TryRead(out JToken item)
             {
                 var read = _inner.TryRead(out item);
+
                 if (read)
-                    _onRead(item);
+                    _onRead(item, _consumerId);
 
                 return read;
             }
 
-            public override ValueTask<bool> WaitToReadAsync(CancellationToken cancellationToken = default) =>
-                _inner.WaitToReadAsync(cancellationToken);
+            public override ValueTask<bool> WaitToReadAsync(
+                CancellationToken cancellationToken = default)
+            {
+                return _inner.WaitToReadAsync(cancellationToken);
+            }
         }
     }
 }
