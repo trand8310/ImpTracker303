@@ -14,6 +14,7 @@ using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Channels;
 using System.Web;
 
 namespace MainClient
@@ -2162,6 +2163,571 @@ namespace MainClient
         }
         #endregion
 
+
+        private async Task ProducerAsync(ChannelWriter<JToken> writer, CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                if (applicationstop || applicationrestart)
+                {
+                    LogWriteLine("停止获取任务");
+                    break;
+                }
+                var content = CommonHelper.HttpGet($"{setting.TaskApiUrl}?type=1&action=getTask&task={setting.TaskIdentify}&test=0&_t={System.DateTime.Now.Ticks}");
+                if (!string.IsNullOrWhiteSpace(content))
+                {
+                    if (content.Equals("empty"))
+                    {
+                        sync.Post((p) => { this.taskInfoListView.Items.Clear(); }, null);
+                        LogWriteLine($"共取到[0]条任务");
+                    }
+                    else
+                    {
+                        try
+                        {
+                            var tasks = (JObject)JsonConvert.DeserializeObject(content);
+                            int taskCount = tasks["task"].Count();
+                            if (taskCount > 0)
+                            {
+                                if (setting.Multiple > 1)
+                                {
+                                    for (int i = 0; i < setting.Multiple; i++)
+                                    {
+                                        foreach (var task in tasks["task"])
+                                        {
+                                            await writer.WriteAsync(task, token);
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    foreach (var task in tasks["task"])
+                                    {
+                                        await writer.WriteAsync(task, token);
+                                    }
+                                }
+                                AddTaskInfo(tasks["task"]);
+                                LogWriteLine($"获取[{taskCount}]条任务");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine(ex.Message);
+                        }
+                    }
+                }
+                else
+                {
+                    LogWriteLine("获取任务");
+                }
+                SpinWait.SpinUntil(() => token.IsCancellationRequested, setting.GetTaskInterval);
+            }
+        }
+
+        private async Task ConsumerAsync(int consumerId, ChannelReader<JToken> reader, CancellationToken token)
+        {
+
+            int jobTimeRandomSeed = setting.ChildProcessResetIntervalMinutes * 60 + new Random(Guid.NewGuid().GetHashCode()).Next(-30, 30);
+
+            bool jobFirst = true;
+            ProcessItem client = null;
+            Process process = null;
+
+            while (!token.IsCancellationRequested && !applicationrestart)
+            {
+                if (!await reader.WaitToReadAsync(token))
+                {
+                    break;
+                }
+                if (reader.TryRead(out var jobVal))
+                {
+                    var job = (JObject)jobVal;
+                    if (jobFirst)
+                    {
+                        LogInfo($"创建进程:开始");
+                        jobFirst = false;
+                        jobTimeRandomSeed = setting.ChildProcessResetIntervalMinutes * 60 + new Random(Guid.NewGuid().GetHashCode()).Next(-30, 30);
+                        var clientId = Guid.NewGuid().ToString("N");
+                        var clientExecutablePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "CefClient", "CefClient.exe");
+                        process = CreateNewProcess(clientExecutablePath, this.selfWndHandle, clientId, consumerId);
+                        client = new ProcessItem() { ProcessId = process.Id, ClientWindowHandle = 0, ProcessPath = clientExecutablePath, time = System.DateTime.Now };
+                        this.cefProcessManager.Register(clientId, client);
+                        SpinWait.SpinUntil(() => this.cts.IsCancellationRequested || client.ClientWindowHandle != 0, 30 * 1000);
+                        try
+                        {
+                            LogInfo($"创建进程:完成{process.MainModule.FileName}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine(ex.Message);
+                        }
+                        await Task.Delay(new Random().Next(500, 1000), this.cts.Token);
+                    }
+
+                    sync.Post((pi) =>
+                    {
+                        label15.Text = $"活动进程:{pi}";
+                    }, this.cefProcessManager != null ? this.cefProcessManager.Count : 0);
+
+                    var task = job as JObject;
+                    if (this.cts.IsCancellationRequested)
+                    {
+                        return;
+                    }
+                    var taskId = Convert.ToInt32(task["id"].ToString());
+                    var title = task["title"].ToString();
+                    string proxy_server = string.Empty;
+                    string realIp = string.Empty;
+                    string ip = string.Empty;
+
+                redo_getip:
+                    if (this.cts.IsCancellationRequested || applicationrestart)
+                    {
+                        return;
+                    }
+
+                    if (!setting.NoProxy)
+                    {
+                        var proxyJSON = await GetIps(task, 1);
+                        if (string.IsNullOrWhiteSpace(proxyJSON) || !proxyJSON.Contains(":") || proxyJSON.Contains("频繁") || proxyJSON.Contains("频率") || proxyJSON.Contains("太快") || proxyJSON.Contains("失败") || proxyJSON.Contains("错误") || proxyJSON.Contains("余额不足"))
+                        {
+                            LogWriteLine($"IP异常:{proxyJSON}");
+                            _logger.LogError($"任务[{task["id"]}]:,地区:{task["address"]},IP异常{proxyJSON}");
+                            await Task.Delay(new Random().Next(50, 100));
+                            goto redo_getip;
+                        }
+                        JObject ipData = null;
+                        string task_province = string.Empty;
+                        string task_city = string.Empty;
+                        if (proxyJSON.Contains("serialNo") && proxyJSON.Contains("realIp"))
+                        {
+                            var jo = (JObject)JsonConvert.DeserializeObject(proxyJSON);
+                            if (jo["data"] is JArray)
+                            {
+                                var ipinfo = (JObject)jo["data"].FirstOrDefault();
+                                proxy_server = $"{ipinfo["ip"]}:{ipinfo["port"]}";
+                                if (ipinfo.ContainsKey("realIp"))
+                                {
+                                    realIp = ipinfo.SelectToken("realIp").Value<string>();
+                                }
+                                else if (ipinfo.ContainsKey("rip"))
+                                {
+                                    realIp = ipinfo.SelectToken("rip").Value<string>();
+                                }
+                            }
+                            else
+                            {
+                                var _jo = (JObject)JsonConvert.DeserializeObject(jo["data"].ToString());
+                                var ipinfo = (JObject)_jo["data"].FirstOrDefault();
+                                proxy_server = $"{ipinfo["ip"]}:{ipinfo["port"]}";
+                                if (ipinfo.ContainsKey("realIp"))
+                                {
+                                    realIp = ipinfo.SelectToken("realIp").Value<string>();
+                                }
+                                else if (ipinfo.ContainsKey("rip"))
+                                {
+                                    realIp = ipinfo.SelectToken("rip").Value<string>();
+                                }
+                            }
+                        }
+                        else
+                        {
+                            ipData = (JObject)JsonConvert.DeserializeObject(proxyJSON);
+                            task_province = ipData["province"].ToString().Trim();
+                            task_city = ipData["city"].ToString().Trim();
+                            //LogWriteLine("proxyJSON=" + proxyJSON);
+                            if (proxyJSON.Contains("data") && proxyJSON.Contains("success") && proxyJSON.Contains("province") && proxyJSON.Contains("city"))
+                            {
+                                if (ipData["data"]?.Type == JTokenType.String)
+                                {
+                                    proxyJSON = $"{ipData["data"].Value<string>().Trim()}";
+                                }
+                                else
+                                {
+                                    ipData = (JObject)JsonConvert.DeserializeObject(ipData["data"].ToString());
+                                    if (ipData["data"].Count() == 0)
+                                    {
+                                        LogWriteLine("IP异常1");
+                                        _logger.LogError($"任务[{task["id"]}]:,地区:{task["address"]},IP异常{proxyJSON}");
+                                        await Task.Delay(new Random().Next(50, 100));
+                                        goto redo_getip;
+                                    }
+                                    var ipItem = ipData["data"].FirstOrDefault();
+                                    proxyJSON = $"{ipItem["ip"].ToString().Trim()}:{ipItem["port"].ToString().Trim()}";
+                                    if (ipItem.SelectToken("rip") != null)
+                                        realIp = ipItem.SelectToken("rip").Value<string>();
+                                }
+
+
+
+
+
+                                if (setting.IPAreaCheck)
+                                {
+                                    //var ip_province = ipItem["province"].ToString();
+                                    //var ip_city = ipItem["city"].ToString();
+                                    //if (!string.IsNullOrWhiteSpace(task_province))
+                                    //{
+                                    //    if (string.IsNullOrWhiteSpace(ip_province) || !ip_province.Contains(task_province))
+                                    //    {
+                                    //        LogWriteLine("IP异常,省份无效");
+                                    //        await Task.Delay(new Random().Next(50, 100));
+                                    //        goto redo_getip;
+                                    //    }
+                                    //}
+                                    //if (!string.IsNullOrWhiteSpace(task_city))
+                                    //{
+                                    //    if (string.IsNullOrWhiteSpace(ip_city) || !ip_city.Contains(task_city))
+                                    //    {
+                                    //        LogWriteLine("IP异常,城市无效");
+                                    //        await Task.Delay(new Random().Next(50, 100));
+                                    //        goto redo_getip;
+                                    //    }
+                                    //}
+                                }
+                            }
+                            else
+                            {
+                                proxyJSON = ipData["data"].ToString().Trim();
+                            }
+                            string pattern = @"(?:(?:[0,1]?\d?\d|2[0-4]\d|25[0-5])\.){3}(?:[0,1]?\d?\d|2[0-4]\d|25[0-5]):\d{0,5}";
+                            if (!Regex.IsMatch(proxyJSON, pattern))
+                            {
+                                LogWriteLine("IP异常2:" + proxyJSON);
+                                _logger.LogError($"任务[{task["id"]}]:,地区:{task["address"]},IP异常{proxyJSON}");
+                                await Task.Delay(new Random().Next(100, 200));
+                                goto redo_getip;
+                            }
+                            proxy_server = proxyJSON.Trim();
+                            if (setting.CheckIp || (setting.RealIp && string.IsNullOrWhiteSpace(realIp)))
+                            {
+                                var result = await _ipTester.TestAsync(proxy_server);
+                                if (result.IsValid)
+                                {
+                                    var ip_json = JObject.Parse(result.Data);
+                                    if (ip_json.ContainsKey("query"))
+                                        realIp = ip_json["query"].Value<string>();
+                                    if (ip_json.ContainsKey("ip"))
+                                        realIp = ip_json["ip"].Value<string>();
+                                }
+                                else
+                                {
+                                    LogWriteLine("IP检测失败:" + proxyJSON + $",{result.Data}");
+                                    await Task.Delay(new Random().Next(100, 200));
+                                    goto redo_getip;
+                                }
+                            }
+                        }
+
+                        _logger.LogInformation($"任务[{task["id"]}]:{title},IP:{realIp},地区:{task["address"]}");
+                        if (!string.IsNullOrWhiteSpace(proxy_server) && proxy_server.Contains(":"))
+                        {
+                            ip = proxy_server.Substring(0, proxy_server.IndexOf(":"));
+                        }
+                        else
+                        {
+                            LogWriteLine($"IP异常");
+                            goto redo_getip;
+                        }
+
+
+                        #region IP地区检测
+                        string isp = string.Empty;
+                        if (setting.IPAreaCheck)
+                        {
+                            var areaJson = GetIpAreaByLocal(ip, proxy_server);
+                            _logger.LogInformation($"IP检测:{areaJson}");
+                            if (string.IsNullOrWhiteSpace(areaJson))
+                            {
+                                LogWriteLine($"IP异常,代理无效:{proxyJSON}");
+                                await Task.Delay(new Random().Next(50, 100));
+                                goto redo_getip;
+                            }
+                            var areaData = (JObject)JsonConvert.DeserializeObject(areaJson);
+                            if (!string.IsNullOrWhiteSpace(task_province))
+                            {
+                                if (string.IsNullOrWhiteSpace(areaData["data"]["region"].ToString()) || !areaData["data"]["region"].ToString().Contains(task_province))
+                                {
+                                    LogWriteLine("IP异常,省份无效");
+                                    await Task.Delay(new Random().Next(50, 100));
+                                    goto redo_getip;
+                                }
+                            }
+                            if (!string.IsNullOrWhiteSpace(task_city))
+                            {
+                                if (string.IsNullOrWhiteSpace(areaData["data"]["city"].ToString()) || !areaData["data"]["city"].ToString().Contains(task_city))
+                                {
+                                    LogWriteLine("IP异常,城市无效");
+                                    await Task.Delay(new Random().Next(50, 100));
+                                    goto redo_getip;
+                                }
+
+                            }
+                            realIp = areaData["content"]["ip"].ToString();
+                            isp = areaData["content"]["isp"].ToString();
+
+                        }
+                        #endregion
+
+
+
+
+
+
+
+                    }
+
+
+
+
+                    int abl = 100;
+                    if (task.ContainsKey("abl") && int.TryParse(task["abl"].ToString(), out int ablr))
+                    {
+                        abl = ablr;
+                    }
+                    var uaClients = task["client"].ToString().Split(new string[] { "|" }, StringSplitOptions.RemoveEmptyEntries);
+                    var uaRates = new Dictionary<int, int>();//UA
+                    foreach (var ua in uaClients)
+                    {
+                        uaRates.Add(Convert.ToInt32(ua), 0);
+                    }
+                    var refererRates = new List<RefererInfo>();
+                    if (task["referer"] != null && !string.IsNullOrWhiteSpace(task["referer"].ToString()))
+                    {
+                        var referers = task["referer"].ToString().Split(new string[] { "<br/>" }, StringSplitOptions.RemoveEmptyEntries);
+                        foreach (var referer in referers)
+                        {
+                            if (referer.Contains("|"))
+                            {
+                                var refs = referer.Split('|');
+                                refererRates.Add(new RefererInfo() { Url = refs[1], Count = 0, Rate = Convert.ToInt32(refs[0]) * 0.01 });
+                            }
+                            else
+                            {
+                                refererRates.Add(new RefererInfo() { Url = referer, Count = 0, Rate = 1 });
+                            }
+                        }
+                    }
+
+                    string url = task["url"].ToString();
+                    string url2 = task["url2"].ToString();
+                    int uvCount = Convert.ToInt32(task["uv"].ToString());
+                    bool huichuan = false;
+                    if (task["huichuan"] != null && task["huichuan"].ToString().Equals("on"))
+                    {
+                        huichuan = true;
+                    }
+
+                    for (int uvIndex = 1; uvIndex <= uvCount; uvIndex++)
+                    {
+                        if (this.cts.IsCancellationRequested || applicationrestart)
+                        {
+                            break;
+                        }
+                        if (process.HasExited)
+                        {
+                            jobFirst = true;
+                            break;
+                        }
+                        var referer = string.Empty;
+                        if (refererRates.Count() > 0)
+                        {
+                            var f = refererRates.Where(w => w.Count < (w.Rate * uvCount)).OrderBy(o => o.Count).FirstOrDefault();
+                            if (f != null)
+                            {
+                                f.Count = f.Count + 1;
+                                referer = f.Url;
+                            }
+                            else
+                            {
+                                f = refererRates.OrderByDescending(o => o.Rate).FirstOrDefault();
+                            }
+                        }
+
+
+                        OSType os = OSType.UNUNKNOWN;
+
+
+                        if (abl != 0)
+                        {
+                            uaRates = uaRates.OrderBy(o => o.Value).ToDictionary(r => r.Key, r => r.Value);
+                            var uaIndex = uaRates.FirstOrDefault().Key;
+                            var uaValue = uaRates[uaIndex];
+
+                            if (abl != 100)
+                            {
+                                if (uaIndex == 1)
+                                {
+                                    uaRates[uaIndex] = uaValue + (1 * (100 - abl));
+
+                                }
+                                else
+                                {
+                                    uaRates[uaIndex] = uaValue + 1 * abl;
+                                }
+
+                            }
+                            else
+                            {
+                                uaRates[uaIndex] = uaValue + 1;
+                            }
+                        }
+                        else
+                        {
+
+                            if (uaClients.Count() > 1)
+                            {
+                                var r_ua_index = new Random(Guid.NewGuid().GetHashCode()).Next(0, uaClients.Length);
+                                if (r_ua_index >= uaClients.Length)
+                                {
+                                    r_ua_index--;
+                                }
+                                var uaIndex = Convert.ToInt32(uaClients[r_ua_index]);
+                                os = DevMan.GetOSByClient(uaIndex);
+
+                            }
+                            else
+                            {
+                                os = DevMan.GetOSByClient(uaRates.FirstOrDefault().Key);
+                            }
+                        }
+
+                        JToken dev = await GetDevByOS(os);
+                        var ua = dev["ua"].Value<string>();
+
+
+
+                        #region 网址处理
+
+                        string uv_url = string.Empty;
+                        string domain = new Uri(url).Host;
+
+                        if (domain.Contains("miaozhen.com"))
+                        {
+                            uv_url = FormatUrlText(url, ip, ua, task, os, null, dev);
+                        }
+                        else if (domain.Contains("gridsumdissector.com"))
+                        {
+                            uv_url = GridSumissector(url, ip, ua, task, os, null, dev);
+                        }
+                        else if (domain.Contains("ipinyou.com"))
+                        {
+                            uv_url = FormatUrl_ipinyou(url, ip, ua, task, os, null, dev);
+                        }
+                        else if (domain.Contains("mafengwo.cn"))
+                        {
+                            uv_url = FormatUrl_mafengwo(url, ip, ua, task, os, null, dev);
+                        }
+                        else
+                        {
+                            uv_url = FormatUrlText(url, ip, ua, task, os, null, dev);
+                        }
+
+                        string uv_url2 = string.Empty;
+                        if (!string.IsNullOrWhiteSpace(url2))
+                        {
+                            if (url2.Contains("miaozhen.com"))
+                            {
+                                uv_url2 = FormatUrlText(url2, ip, ua, task, os, null, dev);
+                            }
+                            else if (url2.Contains("gridsumdissector.com"))
+                            {
+
+                                uv_url2 = GridSumissector(url2, ip, ua, task, os, null, dev);
+                            }
+                            else if (url2.Contains("ipinyou.com"))
+                            {
+
+                                uv_url2 = FormatUrl_ipinyou(url2, ip, ua, task, os, null, dev);
+                            }
+                            else if (domain.Contains("mafengwo.cn"))
+                            {
+                                uv_url = FormatUrl_mafengwo(url, ip, ua, task, os, null, dev);
+                            }
+                            else
+                            {
+                                uv_url2 = FormatUrlText(url2, ip, ua, task, os, null, dev);
+
+                            }
+                        }
+                        #endregion
+
+                        var cacheIndex = $"s{uvIndex}";
+
+                        var _args = new JObject();
+                        //_args["ipkey"] = null;
+                        if (setting.NoProxy)
+                        {
+                            _args["IsProxyMode"] = false;
+                            _args["proxy_server"] = null;
+                        }
+                        else
+                        {
+                            _args["IsProxyMode"] = true;
+                            _args["proxy_server"] = proxy_server;
+
+                        }
+                        _args["os"] = (int)os;
+                        var msgret = SendLoadUrlMessage(client, uv_url, uv_url2, _args, ua, referer, task, dev, cacheIndex);
+                        Interlocked.Increment(ref TotalUVCount);
+                        LogWriteLine($"提交任务[{task["id"]}]:{task["title"]},process=[{consumerId}],os={os},osv={dev["osv"]},cache={cacheIndex},{proxy_server},{uvIndex}/{uvCount}");
+                        sync.Post((pi) =>
+                        {
+                            label5.Text = $"提交数量:{pi}";
+                            label7.Text = $"运行时间:{(int)sw.Elapsed.TotalMinutes}分钟";
+                        }, this.TotalUVCount);
+
+                        if (uvCount > 1)
+                        {
+                            SpinWait.SpinUntil(() => false, setting.UVInterval);
+                        }
+                    }
+
+                    #region 清理代码
+                    if (!jobFirst)
+                    {
+                        if (process != null && !process.HasExited && setting.ChildProcessResetIntervalMinutes > 0 && ((TimeSpan)(System.DateTime.Now - process.StartTime)).TotalSeconds > jobTimeRandomSeed)
+                        {
+                            jobFirst = true;
+                            if (process != null && !process.HasExited)
+                            {
+                                LogInfo($"清理进程:开始{process.MainModule.FileName}");
+                                await Task.Delay(1000, this.cts.Token);
+                                if (process != null && !process.HasExited)
+                                {
+                                    try
+                                    {
+                                        process.Kill();
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        LogWriteLine(ex.Message);
+                                        CommonHelper.KillProcExec(process.Id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+
+                    SpinWait.SpinUntil(() => this.cts.IsCancellationRequested, setting.UVInterval);
+                }
+            }
+
+            if (process != null && !process.HasExited)
+            {
+                try
+                {
+                    process.Kill();
+                }
+                catch (Exception ex)
+                {
+                    LogWriteLine(ex.Message);
+                    CommonHelper.KillProcExec(process.Id);
+                }
+            }
+        }
+
         private Process CreateNewProcess(string filePath, int hWnd, string clientId, int consumerId)
         {
             try
@@ -2342,593 +2908,7 @@ namespace MainClient
                 this.taskDispatchManager.Writer.TryWrite(pendingTask);
             }
             this.pendingTasks.Clear();
-            this.taskDispatchManager.Start(setting.MaximumParallel,
-                async (writer, token) =>
-                {
-                    while (!token.IsCancellationRequested)
-                    {
-                        if (applicationstop || applicationrestart)
-                        {
-                            LogWriteLine("停止获取任务");
-                            break;
-                        }
-                        var content = CommonHelper.HttpGet($"{setting.TaskApiUrl}?type=1&action=getTask&task={setting.TaskIdentify}&test=0&_t={System.DateTime.Now.Ticks}");
-                        if (!string.IsNullOrWhiteSpace(content))
-                        {
-                            if (content.Equals("empty"))
-                            {
-                                sync.Post((p) => { this.taskInfoListView.Items.Clear(); }, null);
-                                LogWriteLine($"共取到[0]条任务");
-                            }
-                            else
-                            {
-                                try
-                                {
-                                    var tasks = (JObject)JsonConvert.DeserializeObject(content);
-                                    int taskCount = tasks["task"].Count();
-                                    if (taskCount > 0)
-                                    {
-                                        if (setting.Multiple > 1)
-                                        {
-                                            for (int i = 0; i < setting.Multiple; i++)
-                                            {
-                                                foreach (var task in tasks["task"])
-                                                {
-                                                    await writer.WriteAsync(task, token);
-                                                }
-                                            }
-                                        }
-                                        else
-                                        {
-                                            foreach (var task in tasks["task"])
-                                            {
-                                                await writer.WriteAsync(task, token);
-                                            }
-                                        }
-                                        AddTaskInfo(tasks["task"]);
-                                        LogWriteLine($"获取[{taskCount}]条任务");
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    Debug.WriteLine(ex.Message);
-                                }
-                            }
-                        }
-                        else
-                        {
-                            LogWriteLine("获取任务");
-                        }
-                        SpinWait.SpinUntil(() => token.IsCancellationRequested, setting.GetTaskInterval);
-                    }
-                },
-                async (consumerId, reader, token) =>
-                {
-
-                    int jobTimeRandomSeed = setting.ChildProcessResetIntervalMinutes * 60 + new Random(Guid.NewGuid().GetHashCode()).Next(-30, 30);
-
-                    bool jobFirst = true;
-                    bool jobCopyFile = true;
-                    ProcessItem client = null;
-                    Process process = null;
-
-                    while (!token.IsCancellationRequested && !applicationrestart)
-                    {
-                        if (!await reader.WaitToReadAsync(token))
-                        {
-                            break;
-                        }
-                        if (reader.TryRead(out var jobVal))
-                        {
-                            var job = (JObject)jobVal;
-                            if (jobFirst)
-                            {
-                                LogInfo($"创建进程:开始");
-                                jobFirst = false;
-                                jobTimeRandomSeed = setting.ChildProcessResetIntervalMinutes * 60 + new Random(Guid.NewGuid().GetHashCode()).Next(-30, 30);
-                                var clientId = Guid.NewGuid().ToString("N");
-                                var sourceFileName = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "CefClient", "CefClient.exe");
-                                var processPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "chrome", $"CefClient{consumerId}");
-                                var destFileName = System.IO.Path.Combine(processPath, "CefClient.exe");
-                                if (!File.Exists(destFileName))
-                                {
-                                    CommonHelper.CopyFilesRecursively(new DirectoryInfo(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "CefClient")), new DirectoryInfo(processPath));
-                                }
-                                else
-                                {
-                                    if (jobCopyFile)
-                                    {
-                                        try
-                                        {
-                                            System.IO.File.Copy(sourceFileName, destFileName, true);
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            Debug.WriteLine(ex.Message);
-                                        }
-
-                                    }
-                                }
-                                process = CreateNewProcess(destFileName, this.selfWndHandle, clientId, consumerId);
-                                client = new ProcessItem() { ProcessId = process.Id, ClientWindowHandle = 0, ProcessPath = destFileName, time = System.DateTime.Now };
-                                this.cefProcessManager.Register(clientId, client);
-                                SpinWait.SpinUntil(() => this.cts.IsCancellationRequested || client.ClientWindowHandle != 0, 30 * 1000);
-                                try
-                                {
-                                    LogInfo($"创建进程:完成{process.MainModule.FileName}");
-                                }
-                                catch (Exception ex)
-                                {
-                                    Console.WriteLine(ex.Message);
-                                }
-                                await Task.Delay(new Random().Next(500, 1000), this.cts.Token);
-                            }
-
-                            sync.Post((pi) =>
-                            {
-                                label15.Text = $"活动进程:{pi}";
-                            }, this.cefProcessManager != null ? this.cefProcessManager.Count : 0);
-
-                            var task = job as JObject;
-                            if (this.cts.IsCancellationRequested)
-                            {
-                                return;
-                            }
-                            var taskId = Convert.ToInt32(task["id"].ToString());
-                            var title = task["title"].ToString();
-                            string proxy_server = string.Empty;
-                            string realIp = string.Empty;
-                            string ip = string.Empty;
-
-                        redo_getip:
-                            if (this.cts.IsCancellationRequested || applicationrestart)
-                            {
-                                return;
-                            }
-
-                            if (!setting.NoProxy)
-                            {
-                                var proxyJSON = await GetIps(task, 1);
-                                if (string.IsNullOrWhiteSpace(proxyJSON) || !proxyJSON.Contains(":") || proxyJSON.Contains("频繁") || proxyJSON.Contains("频率") || proxyJSON.Contains("太快") || proxyJSON.Contains("失败") || proxyJSON.Contains("错误") || proxyJSON.Contains("余额不足"))
-                                {
-                                    LogWriteLine($"IP异常:{proxyJSON}");
-                                    _logger.LogError($"任务[{task["id"]}]:,地区:{task["address"]},IP异常{proxyJSON}");
-                                    await Task.Delay(new Random().Next(50, 100));
-                                    goto redo_getip;
-                                }
-                                JObject ipData = null;
-                                string task_province = string.Empty;
-                                string task_city = string.Empty;
-                                if (proxyJSON.Contains("serialNo") && proxyJSON.Contains("realIp"))
-                                {
-                                    var jo = (JObject)JsonConvert.DeserializeObject(proxyJSON);
-                                    if (jo["data"] is JArray)
-                                    {
-                                        var ipinfo = (JObject)jo["data"].FirstOrDefault();
-                                        proxy_server = $"{ipinfo["ip"]}:{ipinfo["port"]}";
-                                        if (ipinfo.ContainsKey("realIp"))
-                                        {
-                                            realIp = ipinfo.SelectToken("realIp").Value<string>();
-                                        }
-                                        else if (ipinfo.ContainsKey("rip"))
-                                        {
-                                            realIp = ipinfo.SelectToken("rip").Value<string>();
-                                        }
-                                    }
-                                    else
-                                    {
-                                        var _jo = (JObject)JsonConvert.DeserializeObject(jo["data"].ToString());
-                                        var ipinfo = (JObject)_jo["data"].FirstOrDefault();
-                                        proxy_server = $"{ipinfo["ip"]}:{ipinfo["port"]}";
-                                        if (ipinfo.ContainsKey("realIp"))
-                                        {
-                                            realIp = ipinfo.SelectToken("realIp").Value<string>();
-                                        }
-                                        else if (ipinfo.ContainsKey("rip"))
-                                        {
-                                            realIp = ipinfo.SelectToken("rip").Value<string>();
-                                        }
-                                    }
-                                }
-                                else
-                                {
-                                    ipData = (JObject)JsonConvert.DeserializeObject(proxyJSON);
-                                    task_province = ipData["province"].ToString().Trim();
-                                    task_city = ipData["city"].ToString().Trim();
-                                    //LogWriteLine("proxyJSON=" + proxyJSON);
-                                    if (proxyJSON.Contains("data") && proxyJSON.Contains("success") && proxyJSON.Contains("province") && proxyJSON.Contains("city"))
-                                    {
-                                        if (ipData["data"]?.Type == JTokenType.String)
-                                        {
-                                            proxyJSON = $"{ipData["data"].Value<string>().Trim()}";
-                                        }
-                                        else
-                                        {
-                                            ipData = (JObject)JsonConvert.DeserializeObject(ipData["data"].ToString());
-                                            if (ipData["data"].Count() == 0)
-                                            {
-                                                LogWriteLine("IP异常1");
-                                                _logger.LogError($"任务[{task["id"]}]:,地区:{task["address"]},IP异常{proxyJSON}");
-                                                await Task.Delay(new Random().Next(50, 100));
-                                                goto redo_getip;
-                                            }
-                                            var ipItem = ipData["data"].FirstOrDefault();
-                                            proxyJSON = $"{ipItem["ip"].ToString().Trim()}:{ipItem["port"].ToString().Trim()}";
-                                            if (ipItem.SelectToken("rip") != null)
-                                                realIp = ipItem.SelectToken("rip").Value<string>();
-                                        }
-
-
-
-
-
-                                        if (setting.IPAreaCheck)
-                                        {
-                                            //var ip_province = ipItem["province"].ToString();
-                                            //var ip_city = ipItem["city"].ToString();
-                                            //if (!string.IsNullOrWhiteSpace(task_province))
-                                            //{
-                                            //    if (string.IsNullOrWhiteSpace(ip_province) || !ip_province.Contains(task_province))
-                                            //    {
-                                            //        LogWriteLine("IP异常,省份无效");
-                                            //        await Task.Delay(new Random().Next(50, 100));
-                                            //        goto redo_getip;
-                                            //    }
-                                            //}
-                                            //if (!string.IsNullOrWhiteSpace(task_city))
-                                            //{
-                                            //    if (string.IsNullOrWhiteSpace(ip_city) || !ip_city.Contains(task_city))
-                                            //    {
-                                            //        LogWriteLine("IP异常,城市无效");
-                                            //        await Task.Delay(new Random().Next(50, 100));
-                                            //        goto redo_getip;
-                                            //    }
-                                            //}
-                                        }
-                                    }
-                                    else
-                                    {
-                                        proxyJSON = ipData["data"].ToString().Trim();
-                                    }
-                                    string pattern = @"(?:(?:[0,1]?\d?\d|2[0-4]\d|25[0-5])\.){3}(?:[0,1]?\d?\d|2[0-4]\d|25[0-5]):\d{0,5}";
-                                    if (!Regex.IsMatch(proxyJSON, pattern))
-                                    {
-                                        LogWriteLine("IP异常2:" + proxyJSON);
-                                        _logger.LogError($"任务[{task["id"]}]:,地区:{task["address"]},IP异常{proxyJSON}");
-                                        await Task.Delay(new Random().Next(100, 200));
-                                        goto redo_getip;
-                                    }
-                                    proxy_server = proxyJSON.Trim();
-                                    if (setting.CheckIp || (setting.RealIp && string.IsNullOrWhiteSpace(realIp)))
-                                    {
-                                        var result = await _ipTester.TestAsync(proxy_server);
-                                        if (result.IsValid)
-                                        {
-                                            var ip_json = JObject.Parse(result.Data);
-                                            if (ip_json.ContainsKey("query"))
-                                                realIp = ip_json["query"].Value<string>();
-                                            if (ip_json.ContainsKey("ip"))
-                                                realIp = ip_json["ip"].Value<string>();
-                                        }
-                                        else
-                                        {
-                                            LogWriteLine("IP检测失败:" + proxyJSON + $",{result.Data}");
-                                            await Task.Delay(new Random().Next(100, 200));
-                                            goto redo_getip;
-                                        }
-                                    }
-                                }
-
-                                _logger.LogInformation($"任务[{task["id"]}]:{title},IP:{realIp},地区:{task["address"]}");
-                                if (!string.IsNullOrWhiteSpace(proxy_server) && proxy_server.Contains(":"))
-                                {
-                                    ip = proxy_server.Substring(0, proxy_server.IndexOf(":"));
-                                }
-                                else
-                                {
-                                    LogWriteLine($"IP异常");
-                                    goto redo_getip;
-                                }
-
-
-                                #region IP地区检测
-                                string isp = string.Empty;
-                                if (setting.IPAreaCheck)
-                                {
-                                    var areaJson = GetIpAreaByLocal(ip, proxy_server);
-                                    _logger.LogInformation($"IP检测:{areaJson}");
-                                    if (string.IsNullOrWhiteSpace(areaJson))
-                                    {
-                                        LogWriteLine($"IP异常,代理无效:{proxyJSON}");
-                                        await Task.Delay(new Random().Next(50, 100));
-                                        goto redo_getip;
-                                    }
-                                    var areaData = (JObject)JsonConvert.DeserializeObject(areaJson);
-                                    if (!string.IsNullOrWhiteSpace(task_province))
-                                    {
-                                        if (string.IsNullOrWhiteSpace(areaData["data"]["region"].ToString()) || !areaData["data"]["region"].ToString().Contains(task_province))
-                                        {
-                                            LogWriteLine("IP异常,省份无效");
-                                            await Task.Delay(new Random().Next(50, 100));
-                                            goto redo_getip;
-                                        }
-                                    }
-                                    if (!string.IsNullOrWhiteSpace(task_city))
-                                    {
-                                        if (string.IsNullOrWhiteSpace(areaData["data"]["city"].ToString()) || !areaData["data"]["city"].ToString().Contains(task_city))
-                                        {
-                                            LogWriteLine("IP异常,城市无效");
-                                            await Task.Delay(new Random().Next(50, 100));
-                                            goto redo_getip;
-                                        }
-
-                                    }
-                                    realIp = areaData["content"]["ip"].ToString();
-                                    isp = areaData["content"]["isp"].ToString();
-
-                                }
-                                #endregion
-
-
-
-
-
-
-
-                            }
-
-
-
-
-                            int abl = 100;
-                            if (task.ContainsKey("abl") && int.TryParse(task["abl"].ToString(), out int ablr))
-                            {
-                                abl = ablr;
-                            }
-                            var uaClients = task["client"].ToString().Split(new string[] { "|" }, StringSplitOptions.RemoveEmptyEntries);
-                            var uaRates = new Dictionary<int, int>();//UA
-                            foreach (var ua in uaClients)
-                            {
-                                uaRates.Add(Convert.ToInt32(ua), 0);
-                            }
-                            var refererRates = new List<RefererInfo>();
-                            if (task["referer"] != null && !string.IsNullOrWhiteSpace(task["referer"].ToString()))
-                            {
-                                var referers = task["referer"].ToString().Split(new string[] { "<br/>" }, StringSplitOptions.RemoveEmptyEntries);
-                                foreach (var referer in referers)
-                                {
-                                    if (referer.Contains("|"))
-                                    {
-                                        var refs = referer.Split('|');
-                                        refererRates.Add(new RefererInfo() { Url = refs[1], Count = 0, Rate = Convert.ToInt32(refs[0]) * 0.01 });
-                                    }
-                                    else
-                                    {
-                                        refererRates.Add(new RefererInfo() { Url = referer, Count = 0, Rate = 1 });
-                                    }
-                                }
-                            }
-
-                            string url = task["url"].ToString();
-                            string url2 = task["url2"].ToString();
-                            int uvCount = Convert.ToInt32(task["uv"].ToString());
-                            bool huichuan = false;
-                            if (task["huichuan"] != null && task["huichuan"].ToString().Equals("on"))
-                            {
-                                huichuan = true;
-                            }
-
-                            for (int uvIndex = 1; uvIndex <= uvCount; uvIndex++)
-                            {
-                                if (this.cts.IsCancellationRequested || applicationrestart)
-                                {
-                                    break;
-                                }
-                                if (process.HasExited)
-                                {
-                                    jobFirst = true;
-                                    jobCopyFile = false;
-                                    break;
-                                }
-                                var referer = string.Empty;
-                                if (refererRates.Count() > 0)
-                                {
-                                    var f = refererRates.Where(w => w.Count < (w.Rate * uvCount)).OrderBy(o => o.Count).FirstOrDefault();
-                                    if (f != null)
-                                    {
-                                        f.Count = f.Count + 1;
-                                        referer = f.Url;
-                                    }
-                                    else
-                                    {
-                                        f = refererRates.OrderByDescending(o => o.Rate).FirstOrDefault();
-                                    }
-                                }
-
-
-                                OSType os = OSType.UNUNKNOWN;
-
-
-                                if (abl != 0)
-                                {
-                                    uaRates = uaRates.OrderBy(o => o.Value).ToDictionary(r => r.Key, r => r.Value);
-                                    var uaIndex = uaRates.FirstOrDefault().Key;
-                                    var uaValue = uaRates[uaIndex];
-
-                                    if (abl != 100)
-                                    {
-                                        if (uaIndex == 1)
-                                        {
-                                            uaRates[uaIndex] = uaValue + (1 * (100 - abl));
-
-                                        }
-                                        else
-                                        {
-                                            uaRates[uaIndex] = uaValue + 1 * abl;
-                                        }
-
-                                    }
-                                    else
-                                    {
-                                        uaRates[uaIndex] = uaValue + 1;
-                                    }
-                                }
-                                else
-                                {
-
-                                    if (uaClients.Count() > 1)
-                                    {
-                                        var r_ua_index = new Random(Guid.NewGuid().GetHashCode()).Next(0, uaClients.Length);
-                                        if (r_ua_index >= uaClients.Length)
-                                        {
-                                            r_ua_index--;
-                                        }
-                                        var uaIndex = Convert.ToInt32(uaClients[r_ua_index]);
-                                        os = DevMan.GetOSByClient(uaIndex);
-
-                                    }
-                                    else
-                                    {
-                                        os = DevMan.GetOSByClient(uaRates.FirstOrDefault().Key);
-                                    }
-                                }
-
-                                JToken dev = await GetDevByOS(os);
-                                var ua = dev["ua"].Value<string>();
-
-
-
-                                #region 网址处理
-
-                                string uv_url = string.Empty;
-                                string domain = new Uri(url).Host;
-
-                                if (domain.Contains("miaozhen.com"))
-                                {
-                                    uv_url = FormatUrlText(url, ip, ua, task, os, null, dev);
-                                }
-                                else if (domain.Contains("gridsumdissector.com"))
-                                {
-                                    uv_url = GridSumissector(url, ip, ua, task, os, null, dev);
-                                }
-                                else if (domain.Contains("ipinyou.com"))
-                                {
-                                    uv_url = FormatUrl_ipinyou(url, ip, ua, task, os, null, dev);
-                                }
-                                else if (domain.Contains("mafengwo.cn"))
-                                {
-                                    uv_url = FormatUrl_mafengwo(url, ip, ua, task, os, null, dev);
-                                }
-                                else
-                                {
-                                    uv_url = FormatUrlText(url, ip, ua, task, os, null, dev);
-                                }
-
-                                string uv_url2 = string.Empty;
-                                if (!string.IsNullOrWhiteSpace(url2))
-                                {
-                                    if (url2.Contains("miaozhen.com"))
-                                    {
-                                        uv_url2 = FormatUrlText(url2, ip, ua, task, os, null, dev);
-                                    }
-                                    else if (url2.Contains("gridsumdissector.com"))
-                                    {
-
-                                        uv_url2 = GridSumissector(url2, ip, ua, task, os, null, dev);
-                                    }
-                                    else if (url2.Contains("ipinyou.com"))
-                                    {
-
-                                        uv_url2 = FormatUrl_ipinyou(url2, ip, ua, task, os, null, dev);
-                                    }
-                                    else if (domain.Contains("mafengwo.cn"))
-                                    {
-                                        uv_url = FormatUrl_mafengwo(url, ip, ua, task, os, null, dev);
-                                    }
-                                    else
-                                    {
-                                        uv_url2 = FormatUrlText(url2, ip, ua, task, os, null, dev);
-
-                                    }
-                                }
-                                #endregion
-
-                                var cacheIndex = $"s{uvIndex}";
-
-                                var _args = new JObject();
-                                //_args["ipkey"] = null;
-                                if (setting.NoProxy)
-                                {
-                                    _args["IsProxyMode"] = false;
-                                    _args["proxy_server"] = null;
-                                }
-                                else
-                                {
-                                    _args["IsProxyMode"] = true;
-                                    _args["proxy_server"] = proxy_server;
-
-                                }
-                                _args["os"] = (int)os;
-                                var msgret = SendLoadUrlMessage(client, uv_url, uv_url2, _args, ua, referer, task, dev, cacheIndex);
-                                Interlocked.Increment(ref TotalUVCount);
-                                LogWriteLine($"提交任务[{task["id"]}]:{task["title"]},process=[{consumerId}],os={os},osv={dev["osv"]},cache={cacheIndex},{proxy_server},{uvIndex}/{uvCount}");
-                                sync.Post((pi) =>
-                                {
-                                    label5.Text = $"提交数量:{pi}";
-                                    label7.Text = $"运行时间:{(int)sw.Elapsed.TotalMinutes}分钟";
-                                }, this.TotalUVCount);
-
-                                if (uvCount > 1)
-                                {
-                                    SpinWait.SpinUntil(() => false, setting.UVInterval);
-                                }
-                            }
-
-                            #region 清理代码
-                            if (!jobFirst)
-                            {
-                                if (process != null && !process.HasExited && setting.ChildProcessResetIntervalMinutes > 0 && ((TimeSpan)(System.DateTime.Now - process.StartTime)).TotalSeconds > jobTimeRandomSeed)
-                                {
-                                    jobFirst = true;
-                                    jobCopyFile = false;
-                                    if (process != null && !process.HasExited)
-                                    {
-                                        LogInfo($"清理进程:开始{process.MainModule.FileName}");
-                                        await Task.Delay(1000, this.cts.Token);
-                                        if (process != null && !process.HasExited)
-                                        {
-                                            try
-                                            {
-                                                process.Kill();
-                                            }
-                                            catch (Exception ex)
-                                            {
-                                                LogWriteLine(ex.Message);
-                                                CommonHelper.KillProcExec(process.Id);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            #endregion
-
-                            SpinWait.SpinUntil(() => this.cts.IsCancellationRequested, setting.UVInterval);
-                        }
-                    }
-
-                    if (process != null && !process.HasExited)
-                    {
-                        try
-                        {
-                            process.Kill();
-                        }
-                        catch (Exception ex)
-                        {
-                            LogWriteLine(ex.Message);
-                            CommonHelper.KillProcExec(process.Id);
-                        }
-                    }
-                }, this.cts.Token);
+            this.taskDispatchManager.Start(setting.MaximumParallel, ProducerAsync, ConsumerAsync, this.cts.Token);
 
             #endregion
 
