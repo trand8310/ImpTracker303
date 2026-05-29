@@ -185,7 +185,13 @@ namespace MainClient.Common
 
 
 
-        public static bool HttpGet(string url, out string result, string proxyIp = null)
+        public sealed class HttpGetResult
+        {
+            public bool Success { get; set; }
+            public string Result { get; set; } = string.Empty;
+        }
+
+        public static HttpGetResult HttpGetWithStatus(string url, string proxyIp = null)
         {
             HttpHelper http = new HttpHelper();
             var item = new HttpItem()
@@ -202,8 +208,11 @@ namespace MainClient.Common
             }
 
             var hr = http.GetHtml(item);
-            result = hr.Html;
-            return hr.StatusCode == HttpStatusCode.OK;
+            return new HttpGetResult
+            {
+                Success = hr.StatusCode == HttpStatusCode.OK,
+                Result = hr.Html
+            };
         }
 
         static object ipresasync = new object();

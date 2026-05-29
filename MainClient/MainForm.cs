@@ -2201,16 +2201,11 @@ namespace MainClient
             }
         }
 
-        private static bool TryParseIpArea(string areaJson, out string region, out string city, out string realIp, out string isp)
+        private static IpAreaParseResult ParseIpArea(string areaJson)
         {
-            region = string.Empty;
-            city = string.Empty;
-            realIp = string.Empty;
-            isp = string.Empty;
-
             if (string.IsNullOrWhiteSpace(areaJson))
             {
-                return false;
+                return IpAreaParseResult.Fail();
             }
 
             try
@@ -2218,23 +2213,25 @@ namespace MainClient
                 var areaData = JObject.Parse(areaJson);
                 var data = areaData.SelectToken("data") as JObject;
                 var content = areaData.SelectToken("content") as JObject ?? data;
-
-                region = data?.Value<string>("region") ?? string.Empty;
-                city = data?.Value<string>("city") ?? string.Empty;
-                realIp = content?.Value<string>("ip")
-                    ?? data?.Value<string>("ip")
-                    ?? areaData.Value<string>("ip")
-                    ?? string.Empty;
-                isp = content?.Value<string>("isp")
-                    ?? data?.Value<string>("isp")
-                    ?? areaData.Value<string>("isp")
-                    ?? string.Empty;
-
-                return data != null || content != null || !string.IsNullOrWhiteSpace(realIp);
+                var result = new IpAreaParseResult
+                {
+                    Region = data?.Value<string>("region") ?? string.Empty,
+                    City = data?.Value<string>("city") ?? string.Empty,
+                    RealIp = content?.Value<string>("ip")
+                        ?? data?.Value<string>("ip")
+                        ?? areaData.Value<string>("ip")
+                        ?? string.Empty,
+                    Isp = content?.Value<string>("isp")
+                        ?? data?.Value<string>("isp")
+                        ?? areaData.Value<string>("isp")
+                        ?? string.Empty
+                };
+                result.Success = data != null || content != null || !string.IsNullOrWhiteSpace(result.RealIp);
+                return result;
             }
             catch (JsonException)
             {
-                return false;
+                return IpAreaParseResult.Fail();
             }
         }
 
@@ -2384,6 +2381,37 @@ namespace MainClient
             public string UserAgent { get; set; } = string.Empty;
         }
 
+        private sealed class ProxyParseResult
+        {
+            public bool Success { get; set; }
+            public IpContext Context { get; set; } = new IpContext();
+            public string ErrorMessage { get; set; } = string.Empty;
+
+            public static ProxyParseResult Ok(IpContext context)
+            {
+                return new ProxyParseResult { Success = true, Context = context };
+            }
+
+            public static ProxyParseResult Fail(string errorMessage)
+            {
+                return new ProxyParseResult { Success = false, ErrorMessage = errorMessage };
+            }
+        }
+
+        private sealed class IpAreaParseResult
+        {
+            public bool Success { get; set; }
+            public string Region { get; set; } = string.Empty;
+            public string City { get; set; } = string.Empty;
+            public string RealIp { get; set; } = string.Empty;
+            public string Isp { get; set; } = string.Empty;
+
+            public static IpAreaParseResult Fail()
+            {
+                return new IpAreaParseResult { Success = false };
+            }
+        }
+
         private async Task<IpContext> ResolveIpContextAsync(JObject task, string title, CancellationToken token)
         {
             if (setting.NoProxy)
@@ -2402,13 +2430,15 @@ namespace MainClient
                     continue;
                 }
 
-                if (!TryParseProxyResponse(proxyJson, out var ipContext, out var errorMessage))
+                var proxyParseResult = ParseProxyResponse(proxyJson);
+                if (!proxyParseResult.Success)
                 {
-                    LogWriteLine(errorMessage);
+                    LogWriteLine(proxyParseResult.ErrorMessage);
                     _logger.LogError($"任务[{task["id"]}]:,地区:{task["address"]},IP异常{proxyJson}");
                     await Task.Delay(new Random().Next(50, 100), token);
                     continue;
                 }
+                var ipContext = proxyParseResult.Context;
 
                 if (!await ValidateProxyAsync(task, ipContext, proxyJson, token))
                 {
@@ -2439,10 +2469,9 @@ namespace MainClient
                 || proxyJson.Contains("余额不足");
         }
 
-        private bool TryParseProxyResponse(string proxyJson, out IpContext ipContext, out string errorMessage)
+        private ProxyParseResult ParseProxyResponse(string proxyJson)
         {
-            ipContext = new IpContext();
-            errorMessage = string.Empty;
+            var ipContext = new IpContext();
 
             try
             {
@@ -2452,8 +2481,7 @@ namespace MainClient
                     var ipInfo = ResolveSerialProxyItem(jo);
                     if (ipInfo == null)
                     {
-                        errorMessage = "IP异常1";
-                        return false;
+                        return ProxyParseResult.Fail("IP异常1");
                     }
 
                     ipContext.ProxyServer = $"{ipInfo.Value<string>("ip")?.Trim()}:{ipInfo.Value<string>("port")?.Trim()}";
@@ -2478,8 +2506,7 @@ namespace MainClient
                             var ipItem = nestedData["data"]?.FirstOrDefault() as JObject;
                             if (ipItem == null)
                             {
-                                errorMessage = "IP异常1";
-                                return false;
+                                return ProxyParseResult.Fail("IP异常1");
                             }
 
                             ipContext.ProxyServer = $"{ipItem.Value<string>("ip")?.Trim()}:{ipItem.Value<string>("port")?.Trim()}";
@@ -2495,21 +2522,18 @@ namespace MainClient
 
                 if (!TrySetProxyIp(ipContext))
                 {
-                    errorMessage = "IP异常";
-                    return false;
+                    return ProxyParseResult.Fail("IP异常");
                 }
 
-                return true;
+                return ProxyParseResult.Ok(ipContext);
             }
             catch (JsonException ex)
             {
-                errorMessage = "IP异常,JSON解析失败:" + ex.Message;
-                return false;
+                return ProxyParseResult.Fail("IP异常,JSON解析失败:" + ex.Message);
             }
             catch (Exception ex)
             {
-                errorMessage = "IP异常:" + ex.Message;
-                return false;
+                return ProxyParseResult.Fail("IP异常:" + ex.Message);
             }
         }
 
@@ -2572,32 +2596,33 @@ namespace MainClient
                 return false;
             }
 
-            if (!TryParseIpArea(areaJson, out var ipRegion, out var ipCity, out var parsedRealIp, out var parsedIsp))
+            var areaParseResult = ParseIpArea(areaJson);
+            if (!areaParseResult.Success)
             {
                 LogWriteLine($"IP异常,地区数据无效:{areaJson}");
                 await Task.Delay(new Random().Next(50, 100), token);
                 return false;
             }
 
-            if (!string.IsNullOrWhiteSpace(ipContext.TaskProvince) && (string.IsNullOrWhiteSpace(ipRegion) || !ipRegion.Contains(ipContext.TaskProvince)))
+            if (!string.IsNullOrWhiteSpace(ipContext.TaskProvince) && (string.IsNullOrWhiteSpace(areaParseResult.Region) || !areaParseResult.Region.Contains(ipContext.TaskProvince)))
             {
                 LogWriteLine("IP异常,省份无效");
                 await Task.Delay(new Random().Next(50, 100), token);
                 return false;
             }
 
-            if (!string.IsNullOrWhiteSpace(ipContext.TaskCity) && (string.IsNullOrWhiteSpace(ipCity) || !ipCity.Contains(ipContext.TaskCity)))
+            if (!string.IsNullOrWhiteSpace(ipContext.TaskCity) && (string.IsNullOrWhiteSpace(areaParseResult.City) || !areaParseResult.City.Contains(ipContext.TaskCity)))
             {
                 LogWriteLine("IP异常,城市无效");
                 await Task.Delay(new Random().Next(50, 100), token);
                 return false;
             }
 
-            if (!string.IsNullOrWhiteSpace(parsedRealIp))
+            if (!string.IsNullOrWhiteSpace(areaParseResult.RealIp))
             {
-                ipContext.RealIp = parsedRealIp;
+                ipContext.RealIp = areaParseResult.RealIp;
             }
-            ipContext.Isp = parsedIsp;
+            ipContext.Isp = areaParseResult.Isp;
             return true;
         }
 
@@ -2806,9 +2831,17 @@ namespace MainClient
                         return;
                     }
 
-                            }
+                    for (int uvIndex = 1; uvIndex <= uvCount; uvIndex++)
+                    {
+                        if (this.cts.IsCancellationRequested || applicationrestart)
+                        {
+                            break;
                         }
-                        #endregion
+                        if (process.HasExited)
+                        {
+                            jobFirst = true;
+                            break;
+                        }
 
                     int abl = 100;
                     if (task.ContainsKey("abl") && int.TryParse(task["abl"].ToString(), out int ablr))
@@ -3033,22 +3066,6 @@ namespace MainClient
                     /*
                     for (int parallelIndex = 1; parallelIndex <= setting.MaximumParallel; parallelIndex++)
                     {
-                        await this.taskDispatchManager.StopAsync(8 * 1000);
-                    }
-                    this.cefProcessManager?.KillAll();
-                    CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
-                    #region 删除物理文件
-                    /*
-                    for (int parallelIndex = 1; parallelIndex <= setting.MaximumParallel; parallelIndex++)
-                    {
-                        try
-                        {
-                            Directory.Delete(System.IO.Path.Combine(System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase, "chrome", "User Data", parallelIndex.ToString()), recursive: true);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine(ex.Message);
-                        }
                         try
                         {
                             Directory.Delete(System.IO.Path.Combine(System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase, "chrome", "User Data", parallelIndex.ToString()), recursive: true);
