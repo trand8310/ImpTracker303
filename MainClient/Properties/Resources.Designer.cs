@@ -22,7 +22,7 @@ namespace MainClient.Properties {
     [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "17.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
-    internal class Resources {
+    public class Resources {
         
         private static global::System.Resources.ResourceManager resourceMan;
         
@@ -36,7 +36,7 @@ namespace MainClient.Properties {
         ///   返回此类使用的缓存的 ResourceManager 实例。
         /// </summary>
         [global::System.ComponentModel.EditorBrowsableAttribute(global::System.ComponentModel.EditorBrowsableState.Advanced)]
-        internal static global::System.Resources.ResourceManager ResourceManager {
+        public static global::System.Resources.ResourceManager ResourceManager {
             get {
                 if (object.ReferenceEquals(resourceMan, null)) {
                     global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("MainClient.Properties.Resources", typeof(Resources).Assembly);
@@ -51,7 +51,7 @@ namespace MainClient.Properties {
         ///   使用此强类型资源类的所有资源查找执行重写。
         /// </summary>
         [global::System.ComponentModel.EditorBrowsableAttribute(global::System.ComponentModel.EditorBrowsableState.Advanced)]
-        internal static global::System.Globalization.CultureInfo Culture {
+        public static global::System.Globalization.CultureInfo Culture {
             get {
                 return resourceCulture;
             }
@@ -91,7 +91,7 @@ namespace MainClient.Properties {
         ///        &quot;code&quot;: &quot;130100&quot;,
         ///        &quot;prov [字符串的其余部分被截断]&quot;; 的本地化字符串。
         /// </summary>
-        internal static string region_1 {
+        public static string region_1 {
             get {
                 return ResourceManager.GetString("region_1", resourceCulture);
             }
@@ -137,7 +137,7 @@ namespace MainClient.Properties {
         ///		&quot;code&quot;: &quot;130500&quot;,
         ///		&quot;provin [字符串的其余部分被截断]&quot;; 的本地化字符串。
         /// </summary>
-        internal static string region_2 {
+        public static string region_2 {
             get {
                 return ResourceManager.GetString("region_2", resourceCulture);
             }
@@ -174,7 +174,7 @@ namespace MainClient.Properties {
         ///        &quot;code&quot;: &quot;340100&quot;,
         ///        &quot;p [字符串的其余部分被截断]&quot;; 的本地化字符串。
         /// </summary>
-        internal static string region_3 {
+        public static string region_3 {
             get {
                 return ResourceManager.GetString("region_3", resourceCulture);
             }
@@ -214,7 +214,7 @@ namespace MainClient.Properties {
         ///        &quot;code&quot;: &quot;853&quot;,
         ///        &quot;prov [字符串的其余部分被截断]&quot;; 的本地化字符串。
         /// </summary>
-        internal static string region_4_1 {
+        public static string region_4_1 {
             get {
                 return ResourceManager.GetString("region_4_1", resourceCulture);
             }
@@ -257,7 +257,7 @@ namespace MainClient.Properties {
         ///    {
         ///     [字符串的其余部分被截断]&quot;; 的本地化字符串。
         /// </summary>
-        internal static string region_4_2 {
+        public static string region_4_2 {
             get {
                 return ResourceManager.GetString("region_4_2", resourceCulture);
             }
@@ -289,9 +289,52 @@ namespace MainClient.Properties {
         ///        &quot;provinceCode&quot;: &quot;130000&quot;,
         ///        &quot;provinceName&quot;: [字符串的其余部分被截断]&quot;; 的本地化字符串。
         /// </summary>
-        internal static string region_51daili {
+        public static string region_51daili {
             get {
                 return ResourceManager.GetString("region_51daili", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查找类似 [
+        ///    {
+        ///       &quot;code&quot;:&quot;120000&quot;,
+        ///       &quot;name&quot;:&quot;天津&quot;
+        ///    },
+        ///    {
+        ///       &quot;code&quot;:&quot;130000&quot;,
+        ///       &quot;name&quot;:&quot;河北省&quot;
+        ///    },
+        ///    {
+        ///       &quot;code&quot;:&quot;140000&quot;,
+        ///       &quot;name&quot;:&quot;山西省&quot;
+        ///    },
+        ///    {
+        ///       &quot;code&quot;:&quot;150000&quot;,
+        ///       &quot;name&quot;:&quot;内蒙古自治区&quot;
+        ///    },
+        ///    {
+        ///       &quot;code&quot;:&quot;210000&quot;,
+        ///       &quot;name&quot;:&quot;辽宁省&quot;
+        ///    },
+        ///    {
+        ///       &quot;code&quot;:&quot;220000&quot;,
+        ///       &quot;name&quot;:&quot;吉林省&quot;
+        ///    },
+        ///    {
+        ///       &quot;code&quot;:&quot;230000&quot;,
+        ///       &quot;name&quot;:&quot;黑龙江省&quot;
+        ///    },
+        ///    {
+        ///       &quot;code&quot;:&quot;310000&quot;,
+        ///       &quot;name&quot;:&quot;上海&quot;
+        ///    },
+        ///    {
+        ///       &quot;code [字符串的其余部分被截断]&quot;; 的本地化字符串。
+        /// </summary>
+        public static string region_ipzan {
+            get {
+                return ResourceManager.GetString("region_ipzan", resourceCulture);
             }
         }
         
@@ -329,7 +372,7 @@ namespace MainClient.Properties {
         ///        &quot;code&quot;: &quot;211200&quot;,
         ///        &quot;name&quot;: &quot; 铁岭 [字符串的其余部分被截断]&quot;; 的本地化字符串。
         /// </summary>
-        internal static string region_shenlong {
+        public static string region_shenlong {
             get {
                 return ResourceManager.GetString("region_shenlong", resourceCulture);
             }

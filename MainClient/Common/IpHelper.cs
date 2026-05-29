@@ -1,159 +1,541 @@
-﻿using Newtonsoft.Json.Linq;
+﻿using MainClient.Infrastructure;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Diagnostics;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace MainClient.Common
 {
+    public enum IPFormat
+    {
+        TXT = 1,
+        JSON = 2,
+    }
+    public class IpEntity
+    {
+        public string value { get; set; } = string.Empty;
+        public JToken json { get; set; }
+        public IPFormat format { get; set; } = IPFormat.TXT;
+    }
+
+
+
     public class IpHelper
     {
-        private readonly IHttpClientFactory _httpClientFactory;
-        public IpHelper(IHttpClientFactory httpClientFactory)
+        private static JArray region_1;
+        private static JArray region_2;
+        private static JArray region_3;
+        private static JArray region_4_1;
+        private static JArray region_4_2;
+        private static JArray region_ipzan;
+        private static JArray region_51dail;
+        private static JArray region_shenlong;
+
+        static string[] delimiters = { "\r", "\n", System.Environment.NewLine };
+        static SemaphoreSlim _mutex = new SemaphoreSlim(1);
+        static IpHelper()
         {
+            region_1 = (JArray)JsonConvert.DeserializeObject(Properties.Resources.region_1);
+            region_2 = (JArray)JsonConvert.DeserializeObject(Properties.Resources.region_2);
+            region_3 = (JArray)JsonConvert.DeserializeObject(Properties.Resources.region_3);
+            region_4_1 = (JArray)JsonConvert.DeserializeObject(Properties.Resources.region_4_1);
+            region_4_2 = (JArray)JsonConvert.DeserializeObject(Properties.Resources.region_4_2);
+            region_ipzan = (JArray)JsonConvert.DeserializeObject(Properties.Resources.region_ipzan);
+            region_51dail = (JArray)JsonConvert.DeserializeObject(Properties.Resources.region_51daili);
+            region_shenlong = (JArray)JsonConvert.DeserializeObject(Properties.Resources.region_shenlong);
+        }
+        private readonly ILogger _logger;
+        private readonly AppSettings _appSettings;
+        private readonly IHttpClientFactory _httpClientFactory;
+        public IpHelper(AppSettings appSettings, IHttpClientFactory httpClientFactory, ILogger<IpHelper> logger)
+        {
+            _appSettings = appSettings;
             _httpClientFactory = httpClientFactory;
+            _logger = logger;
         }
 
 
-        public static SemaphoreSlim _mutex = new SemaphoreSlim(1);
-        public static async Task<string> GetIp(string url, bool VerifyIP = false)
+        private static ConcurrentQueue<IpEntity> ipQueues = new ConcurrentQueue<IpEntity>();
+        public async Task<IpEntity> GetProxyIpAsync(JToken task, int count = 0)
         {
+            if (ipQueues.TryDequeue(out var value))
+            {
+                return value;
+            }
+            IPFormat iPFormat = IPFormat.TXT;
+            var url = GetIpUrl(task, out iPFormat, count);
+            var client = _httpClientFactory.CreateClient("IP_DATA");
             try
             {
                 await _mutex.WaitAsync();
-                using (HttpClient client = new HttpClient())
+                HttpResponseMessage response = await client.GetAsync(url);
+                response.EnsureSuccessStatusCode();
+                if (response.IsSuccessStatusCode)
                 {
-                    var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Get, url));
                     var content = await response.Content.ReadAsStringAsync();
-                    content = content.Replace("\r\n", "").Trim();
-                    if (Regex.IsMatch(content, "\\d{1,5}\\.\\d{1,5}\\.\\d{1,5}\\.\\d{1,5}\\:\\d{1,6}") && (!VerifyIP || await Ping(content.Split(':')[0])))
+                    if (!string.IsNullOrWhiteSpace(content) && !(content.Contains("白名单") || content.Contains("暂无") || content.Contains("没有") || content.Contains("过多") || content.Contains("请重试")))
                     {
-                        return content;
+                        if (iPFormat == IPFormat.TXT)
+                        {
+                            var values = content.Split(delimiters, StringSplitOptions.RemoveEmptyEntries);
+                            foreach (var text in values)
+                            {
+                                ipQueues.Enqueue(new IpEntity() { format = iPFormat, value = text });
+                            }
+                        }
+                        else if (iPFormat == IPFormat.JSON)
+                        {
+                            var json = JObject.Parse(content);
+                            if (url.Contains("service.ipzan.com"))
+                            {
+                                foreach (var data in json.SelectToken("data.list").Children())
+                                {
+                                    ipQueues.Enqueue(new IpEntity() { format = iPFormat, json = data });
+                                }
+                            }
+                            else if (url.Contains("api.xingyuip.com"))
+                            {
+                                foreach (var data in json.SelectToken("list").Children())
+                                {
+                                    var item = (JObject)data.DeepClone();
+                                    item["rip"] = data["exit_ip"]?.Value<string>();
+                                    item.Remove("exit_ip");
+
+
+
+                                    ipQueues.Enqueue(new IpEntity() { format = iPFormat, json = (JToken)item });
+                                }
+                            }
+                            else
+                            {
+                                foreach (var data in json.SelectToken("data").Children())
+                                {
+                                    ipQueues.Enqueue(new IpEntity() { format = iPFormat, json = data });
+                                }
+                            }
+
+                        }
+
+                        if (ipQueues.TryDequeue(out var entity))
+                        {
+                            return entity;
+                        }
                     }
+                    throw new Exception(content);
+
                 }
-                return null;
             }
-            catch (HttpRequestException ex)
+            catch (Exception ex)
             {
-                Debug.WriteLine(ex.Message);
-                return null;
+                throw new Exception(ex.Message);
+                //_logger.LogError($"GetIpUrl => {url},{ex.InnerException?.Message}");
             }
             finally
             {
                 _mutex.Release();
             }
+            return null;
         }
-        private static ConcurrentQueue<string> ipQueues = new ConcurrentQueue<string>();
-        private static SemaphoreSlim _getIpMutex = new SemaphoreSlim(1);
-        /// <summary>
-        /// 获取代理IP
-        /// </summary>
-        /// <param name="url"></param>
-        /// <returns></returns>
-        public static async Task<string> GetPoolIp(string url)
+
+
+
+
+
+        private string GetIpUrl(JToken task, out IPFormat format, int count = 0)
         {
-            if (!ipQueues.IsEmpty)
-            {
-                if (ipQueues.TryDequeue(out var result))
-                {
-                    return result;
-                }
-            }
+            format = IPFormat.TXT;
+            var url = _appSettings.ProxyIpUrl.Trim();
             try
             {
-                await _getIpMutex.WaitAsync();
-                using (HttpClient client = new HttpClient())
+                //四川[18]:成都[188],
+                var query = System.Web.HttpUtility.ParseQueryString(url);
+
+                if (url.Contains("shenlongip.com"))
                 {
-                    var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Get, url));
-                    var content = await response.Content.ReadAsStringAsync();
-                    var lines = content.Split(new string[] { System.Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
-                    foreach (var line in lines)
+                    #region shenlongip.com
+                    //http://api.shenlongip.com/ip?key=pjr1xjh4&area=310100,320100,320200,320300,320400,320500,320600,320700,320800,320900,321000,321100,321200,321300&protocol=1&mr=1&pattern=txt&count=1&sign=e207c36f5687a57e9802c8190f428ea4
+                    //if (query["format"] != null && query["format"].ToString().Equals("json"))
+                    //    format = IPFormat.JSON;
+                    //else
+                    //    format = IPFormat.TXT;
+
+                    //http://api.shenlongip.com/ip?key=k902nyta&protocol=1&mr=2&pattern=json&count=1&sign=e207c36f5687a57e9802c8190f428ea4&rip=1
+
+
+                    if (query["pattern"] != null && query["pattern"].ToString().Equals("json"))
+                        format = IPFormat.JSON;
+                    else
+                        format = IPFormat.TXT;
+
+
+                    if (_appSettings.IsRealIp)
                     {
-                        ipQueues.Enqueue(line);
+                        format = IPFormat.JSON;
+
+                        if (Regex.IsMatch(url, @"pattern=\w+"))
+                            url = Regex.Replace(url, @"pattern=\w+", $"pattern=json");
+                        else
+                            url = url += $"&pattern=json";
+
+
+                        if (Regex.IsMatch(url, @"rip=\d+"))
+                            url = Regex.Replace(url, @"rip=\d+", $"rip=1");
+                        else
+                            url = url += $"&rip=1";
                     }
+
+                    if (count > 1)
+                    {
+                        if (Regex.IsMatch(url, @"count=[\d]*"))
+                            url = Regex.Replace(url, @"count=[\d]*", $"count={count}");
+                        else
+                            url = url += $"&count={count}";
+                    }
+
+                    if (task["address"] != null && !string.IsNullOrEmpty(task["address"].ToString()) && !task["address"].ToString().Equals("全部"))
+                    {
+                        var address_list = task["address"].ToString().Split(new string[] { "," }, StringSplitOptions.RemoveEmptyEntries);
+                        List<string> area_codes = new List<string>();
+                        foreach (var address in address_list)
+                        {
+                            if (address.Contains(":"))
+                            {
+                                var address_values = address.Split(':');
+                                var m1 = Regex.Match(address_values[0], @"\w+");
+                                if (m1.Success)
+                                {
+                                    var m2 = Regex.Match(address_values[1], @"\w+");
+                                    if (m2.Success)
+                                    {
+                                        var areas = region_shenlong.Where(w => w["name"].ToString().Contains(m2.Value)).ToList();
+                                        if (areas != null && areas.Count() > 0)
+                                        {
+                                            var area_code = string.Join(",", areas.Select(s => s["code"].ToString()));
+                                            area_codes.Add(area_code);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        var areas = region_shenlong.Where(w => w["name"].ToString().Contains(m1.Value)).ToList();
+                                        if (areas != null && areas.Count() > 0)
+                                        {
+                                            var area_code = string.Join(",", areas.Select(s => s["code"].ToString()));
+                                            area_codes.Add(area_code);
+                                        }
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                var m1 = Regex.Match(address, @"\w+");
+                                if (m1.Success)
+                                {
+                                    var areas = region_shenlong.Where(w => w["name"].ToString().Contains(m1.Value));
+                                    if (areas != null && areas.Count() > 0)
+                                    {
+                                        var area_code = string.Join(",", areas.Select(s => s["code"].ToString()));
+                                        area_codes.Add(area_code);
+                                    }
+                                }
+                            }
+                        }
+
+
+                        if (area_codes.Count() > 0)
+                        {
+                            var all_area_code = string.Join(",", area_codes);
+                            if (Regex.IsMatch(url, @"area=[\d,]+"))
+                                url = Regex.Replace(url, @"area=[\d,]+", $"area={all_area_code}");
+                            else
+                                url = url += $"&area={all_area_code}";
+                        }
+
+                    }
+                    #endregion
                 }
 
+                else if (url.Contains("service.ipzan.com"))
+                {
+                    #region service.ipzan.com
+                    //http://service.ipzan.com/core-extract?num=1&no=20211030082718667537&minute=3&format=json&repeat=1&protocol=1&pool=quality&mode=whitelist&secret=u5ta45tj
+
+                    if (_appSettings.IsRealIp)
+                    {
+                        format = IPFormat.JSON;
+                        //realIp=1
+                        if (Regex.IsMatch(url, @"format=\w+"))
+                            url = Regex.Replace(url, @"format=\w+", $"format=json");
+                        else
+                            url = url += $"&format=json";
+
+
+                        if (Regex.IsMatch(url, @"realIp=\d+"))
+                            url = Regex.Replace(url, @"realIp=\d+", $"realIp=1");
+                        else
+                            url = url += $"&realIp=1";
+                    }
+                    else
+                    {
+                        if (Regex.IsMatch(url, @"format=\w+"))
+                            url = Regex.Replace(url, @"format=\w+", $"format=txt");
+                    }
+
+
+                    if (count > 1)
+                    {
+                        if (Regex.IsMatch(url, @"num=[\d]*"))
+                            url = Regex.Replace(url, @"num=[\d]*", $"num={count}");
+                        else
+                            url = url += $"&num={count}";
+                    }
+
+                    if (task["address"] != null && !string.IsNullOrEmpty(task["address"].ToString()) && !task["address"].ToString().Equals("全部"))
+                    {
+                        var addrs = task["address"].ToString().Split(new string[] { "," }, StringSplitOptions.RemoveEmptyEntries);
+                        var address = addrs[Math.Abs(Guid.NewGuid().GetHashCode()) % addrs.Length].Split(':');
+                        var area_addr = string.Empty;
+                        string area = string.Empty;
+                        if (address.Length > 1)
+                        {
+                            var m1 = Regex.Match(address[1], @"\w+");
+                            if (m1.Success)
+                            {
+                                var area_res = region_ipzan.Where(w => w["name"].ToString().Contains(m1.Value)).OrderByDescending(o => Convert.ToInt64(o["code"].ToString())).FirstOrDefault();
+                                if (area_res == null)
+                                {
+                                    m1 = Regex.Match(address[0], @"\w+");
+                                    if (m1.Success)
+                                    {
+                                        area_res = region_ipzan.Where(w => w["name"].ToString().Contains(m1.Value)).OrderByDescending(o => Convert.ToInt64(o["code"].ToString())).FirstOrDefault();
+                                    }
+                                }
+                                if (area_res != null)
+                                {
+                                    if (Regex.IsMatch(url, @"area=[\w]*[^&]?"))
+                                        url = Regex.Replace(url, @"area=[\w]*[^&]?", $"area={area_res["code"]}");
+                                    else
+                                        url = url += $"&area={area_res["code"]}";
+                                }
+                            }
+                        }
+                        else
+                        {
+                            var m1 = Regex.Match(address[0], @"\w+");
+                            if (m1.Success)
+                            {
+                                var area_res = region_ipzan.Where(w => w["name"].ToString().Contains(m1.Value)).OrderByDescending(o => Convert.ToInt64(o["code"].ToString())).FirstOrDefault();
+                                if (area_res != null)
+                                {
+                                    if (Regex.IsMatch(url, @"area=[\w]*[^&]?"))
+                                        url = Regex.Replace(url, @"area=[\w]*[^&]?", $"area={area_res["code"]}");
+                                    else
+                                        url = url += $"&area={area_res["code"]}";
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+
+                }
+                else if (url.Contains("api.xingyuip.com"))
+                {
+                    #region service.ipzan.com
+                    //http://api.xingyuip.com:13000/extract?channel_id=228&auth_mode=whitelist&channel_secret=w044cm&quantity=1&data_type=2&line_separator=0&dedup_mode=1
+
+                    if (_appSettings.IsRealIp)
+                    {
+                        format = IPFormat.JSON;
+                        //realIp=1
+                        if (Regex.IsMatch(url, @"data_type=\d+"))
+                            url = Regex.Replace(url, @"data_type=\d+", $"data_type=2");
+                        else
+                            url = url += $"&data_type=2";
+
+                    }
+                    else
+                    {
+                        if (Regex.IsMatch(url, @"data_type=\d+"))
+                            url = Regex.Replace(url, @"data_type=\d+", $"data_type=1");
+                    }
+
+
+                    if (count > 1)
+                    {
+                        if (Regex.IsMatch(url, @"quantity=[\d]*"))
+                            url = Regex.Replace(url, @"quantity=[\d]*", $"quantity={count}");
+                        else
+                            url = url += $"&quantity={count}";
+                    }
+                    #endregion
+                }
+                else if (url.Contains("51daili.com"))
+                {
+                    #region 51daili.com
+                    //http://bapi.51daili.com/traffic/getip?linePoolIndex=1&packid=12&time=2&qty=12&port=1&format=txt&usertype=17&uid=39905
+
+
+                    if (count > 1)
+                    {
+                        if (Regex.IsMatch(url, @"qty=[\d]*"))
+                            url = Regex.Replace(url, @"qty=[\d]*", $"qty={count}");
+                        else
+                            url = url += $"&qty={count}";
+                    }
+
+
+                    if (task["address"] != null && !string.IsNullOrEmpty(task["address"].ToString()) && !task["address"].ToString().Equals("全部"))
+                    {
+                        var address_list = task["address"].ToString().Split(new string[] { "," }, StringSplitOptions.RemoveEmptyEntries);
+                        var address = address_list[Math.Abs(Guid.NewGuid().GetHashCode()) % address_list.Length].Split(':');
+                        if (address.Length > 1)
+                        {
+                            var m1 = Regex.Match(address[0], @"\w+");
+                            if (m1.Success)
+                            {
+                                var area_prov = region_51dail.Where(w => w["provinceName"].ToString().Contains(m1.Value)).OrderByDescending(o => Convert.ToInt64(o["provinceCode"].ToString())).FirstOrDefault();
+                                if (area_prov != null)
+                                {
+                                    var m2 = Regex.Match(address[1], @"\w+");
+                                    if (m2.Success)
+                                    {
+                                        var area_city = area_prov["mallCityList"].FirstOrDefault(w => w["cityName"].ToString().Contains(m2.Value));
+                                        if (area_city != null)
+                                        {
+                                            if (Regex.IsMatch(url, @"regionCode=[\w]*[^&]?"))
+                                                url = Regex.Replace(url, @"regionCode=[\w]*[^&]?", $"regionCode={area_city["cityCode"]}");
+                                            else
+                                                url = url += $"&regionCode={area_city["cityCode"]}";
+                                        }
+                                        else
+                                        {
+                                            if (Regex.IsMatch(url, @"regionCode=[\w]*[^&]?"))
+                                                url = Regex.Replace(url, @"area=[\w]*[^&]?", $"regionCode={area_prov["provinceCode"]}");
+                                            else
+                                                url = url += $"&regionCode={area_prov["provinceCode"]}";
+                                        }
+                                    }
+                                    else
+                                    {
+                                        if (Regex.IsMatch(url, @"regionCode=[\w]*[^&]?"))
+                                            url = Regex.Replace(url, @"area=[\w]*[^&]?", $"regionCode={area_prov["provinceCode"]}");
+                                        else
+                                            url = url += $"&regionCode={area_prov["provinceCode"]}";
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
+                            var m1 = Regex.Match(address[0], @"\w+");
+                            if (m1.Success)
+                            {
+                                var area_prov = region_51dail.Where(w => w["provinceName"].ToString().Contains(m1.Value)).OrderByDescending(o => Convert.ToInt64(o["provinceCode"].ToString())).FirstOrDefault();
+                                if (area_prov != null)
+                                {
+                                    if (Regex.IsMatch(url, @"regionCode=[\w]*[^&]?"))
+                                        url = Regex.Replace(url, @"regionCode=[\w]*[^&]?", $"regionCode={area_prov["provinceCode"]}");
+                                    else
+                                        url = url += $"&regionCode={area_prov["provinceCode"]}";
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+
+                }
+
+                else if (url.Contains("api.test.myipproxy.com") || url.Contains("api.hailiangip.com") || url.Contains("111.73.45.100") || url.Contains("47.97.20.179"))
+                {
+                    //http://api.test.myipproxy.com:8422/api/getIp?type=1&num=1&orderId=O21081016192288073951&time=1628583680&sign=95d2880db7a7effe459df80ee80ba249&unbindTime=180&dataType=1&pid=&cid=
+                    #region myipproxy & hailiangip & ...
+
+                    if (query["dataType"] != null && Int32.TryParse(query["dataType"].ToString(), out int dataType) && dataType > 0)
+                        format = IPFormat.TXT;
+                    else
+                        format = IPFormat.JSON;
+
+                    if (count > 0)
+                    {
+                        if (Regex.IsMatch(url, @"num=[\d]*"))
+                            url = Regex.Replace(url, @"num=[\d]*", $"num={count}");
+                        else
+                            url = url += $"&num={count}";
+                    }
+
+                    if (_appSettings.IsRealIp)
+                    {
+                        format = IPFormat.JSON;
+                        if (Regex.IsMatch(url, @"dataType=[\d]*"))
+                            url = Regex.Replace(url, @"dataType=[\d]*", $"dataType=0");
+                        else
+                            url = url += $"&dataType=0";
+                    }
+                    else
+                    {
+                        if (Regex.IsMatch(url, @"dataType=[\d]*"))
+                            url = Regex.Replace(url, @"dataType=[\d]*", $"dataType=1");
+                        else
+                            url = url += $"&dataType=1";
+                    }
+
+                    if (task["address"] != null && !string.IsNullOrEmpty(task["address"].ToString()) && !task["address"].ToString().Equals("全部"))
+                    {
+                        var addrs = task["address"].ToString().Split(new string[] { "," }, StringSplitOptions.RemoveEmptyEntries);
+                        var address = addrs[Math.Abs(Guid.NewGuid().GetHashCode()) % addrs.Length].Split(':');
+                        var m1 = Regex.Match(address[0], @"\d+");
+                        string pid = string.Empty, cid;
+                        if (m1.Success)
+                        {
+                            pid = m1.Value;
+                            if (Regex.IsMatch(url, @"pid=[\d]*"))
+                                url = Regex.Replace(url, @"pid=[\d]*", $"pid={pid}");
+                            else
+                                url = url += $"&pid={pid}";
+                        }
+                        if (address.Count() > 1)
+                        {
+                            var m2 = Regex.Match(address[1], @"\d+");
+                            if (m2.Success)
+                            {
+                                cid = m2.Value;
+                                if (!string.IsNullOrWhiteSpace(pid) && !pid.Equals(cid))
+                                {
+                                    if (Regex.IsMatch(url, @"cid=[\d]*"))
+                                        url = Regex.Replace(url, @"cid=[\d]*", $"cid={cid}");
+                                    else
+                                        url = url += $"&cid={cid}";
+                                }
+                            }
+                        }
+                    }
+
+                    #endregion
+                }
             }
-            catch (HttpRequestException ex)
+            catch (Exception ex)
             {
                 Debug.WriteLine(ex.Message);
-                return null;
             }
-            finally
-            {
-                _getIpMutex.Release();
-            }
-
-            if (!ipQueues.IsEmpty)
-            {
-                if (ipQueues.TryDequeue(out var result))
-                {
-                    return result;
-                }
-            }
-            return null;
+            return url;
         }
-        private static async Task<bool> Ping(string ip)
-        {
-            try
-            {
-                Ping ping = new Ping();
-                PingOptions options = new PingOptions
-                {
-                    DontFragment = true
-                };
-                string s = "Test Data!";
-                byte[] bytes = Encoding.ASCII.GetBytes(s);
-                int timeout = 500;
-                PingReply pingReply = await ping.SendPingAsync(ip, timeout, bytes, options);
-                if (pingReply == null || pingReply.Status == IPStatus.Success)
-                {
-                    return true;
-                }
-                return false;
-            }
-            catch (PingException)
-            {
-                return false;
-            }
-        }
-        public async Task<string> GetIpLocation(string ip)
-        {
-            var url = $"http://122.114.142.173/ip.php?ip={ip}";
-            var client = _httpClientFactory.CreateClient();
-            try
-            {
-                client.Timeout = TimeSpan.FromSeconds(15);
-                HttpResponseMessage response = await client.GetAsync(url);
-                response.EnsureSuccessStatusCode();
-                if (response.IsSuccessStatusCode)
-                {
-                    return await response.Content.ReadAsStringAsync();
-                }
-            }
-            catch (WebException ex1)
-            {
-                Debug.WriteLine(ex1.Message);
-            }
-            catch (TaskCanceledException ex2)
-            {
-                Debug.WriteLine(ex2.Message);
-            }
-            catch (Exception ex3)
-            {
-                Debug.WriteLine(ex3.Message);
-            }
-            return null;
 
 
-        }
+
+
+
 
         public async Task<string> GetIpInfo(string proxy)
         {
@@ -162,22 +544,282 @@ namespace MainClient.Common
             {
                 try
                 {
-                    client.Timeout = TimeSpan.FromSeconds(15);
-                    HttpResponseMessage response = await client.GetAsync("http://ip-api.com/json/?lang=zh-CN");
-
+                    client.Timeout = TimeSpan.FromSeconds(10);
+                    HttpResponseMessage response = await client.GetAsync("http://ip-api.com/json");
                     if (response.StatusCode == System.Net.HttpStatusCode.OK)
                     {
                         return await response.Content.ReadAsStringAsync();
                     }
                 }
-                catch (WebException ex)
+                catch (Exception ex)
                 {
                     Debug.WriteLine(ex.Message);
-
                 }
-                return null;
+            };
+            return await ipinfo_json(proxy);
+        }
+        private async Task<string> ipinfo_json(string proxy)
+        {
+            HttpClientHandler httpClientHandler = new HttpClientHandler() { Proxy = new WebProxy(proxy, BypassOnLocal: false), UseProxy = true };
+            using (var client = new HttpClient(httpClientHandler))
+            {
+                try
+                {
+                    client.Timeout = TimeSpan.FromSeconds(10);
+                    HttpResponseMessage response = await client.GetAsync("https://ipinfo.io/json");
+                    if (response.StatusCode == System.Net.HttpStatusCode.OK)
+                    {
+                        var data = await response.Content.ReadAsStringAsync();
+                        var json = JObject.Parse(data);
+                        var loc = json["loc"].Value<string>().Split(',');
+                        var new_json = new JObject();
+                        new_json["status"] = "success";
+                        new_json["country"] = json["country"];
+                        new_json["region"] = json["region"];
+                        new_json["city"] = json["city"];
+                        new_json["lat"] = double.Parse(loc[0]);
+                        new_json["lon"] = double.Parse(loc[1]);
+                        new_json["timezone"] = json["timezone"];
+                        new_json["query"] = json["ip"];
+                        return JsonConvert.SerializeObject(new_json, Formatting.None);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine(ex.Message);
+                }
+            };
+            return null;
+        }
+
+
+
+
+
+
+
+        public async Task<bool> PingIP(string proxy_server)
+        {
+            Ping pingSender = new Ping();
+            PingOptions options = new PingOptions();
+            options.DontFragment = true;
+            string data = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            byte[] buffer = Encoding.ASCII.GetBytes(data);
+            int timeout = 1000;
+            PingReply reply = await pingSender.SendPingAsync(proxy_server, timeout, buffer, options);
+            if (reply.Status == IPStatus.Success)
+            {
+                return true;
+            }
+            return false;
+        }
+
+
+
+
+        #region  Ip操作
+
+        private static readonly string[] _ipApiUrls =
+        {
+            "http://211.154.24.179:9000/api/dash/ipinfo.php",
+            "http://117.21.200.18:9000/api/dash/ipinfo.php",
+            "http://117.21.200.221/api/dash/ipinfo.php",
+            "http://ip-api.com/json/?lang=zh-CN",
+            "https://ipinfo.io/json",
+        };
+
+        private static readonly HttpClient _httpClient = new HttpClient(new HttpClientHandler
+        {
+            UseProxy = false
+        })
+        {
+            Timeout = TimeSpan.FromSeconds(5)
+        };
+
+        /// <summary>
+        /// 判断是否内网IP
+        /// </summary>
+        /// <param name="ip"></param>
+        /// <returns></returns>
+        private static bool IsPrivateIPv4(IPAddress ip)
+        {
+            byte[] b = ip.GetAddressBytes();
+
+            return
+                b[0] == 10 ||
+                (b[0] == 172 && b[1] >= 16 && b[1] <= 31) ||
+                (b[0] == 192 && b[1] == 168) ||
+                (b[0] == 169 && b[1] == 254) || // APIPA
+                b[0] == 127;
+        }
+
+        /// <summary>
+        /// 从单个接口获取 IP
+        /// </summary>
+        private static async Task<string> GetIpFromApiAsync(string url, CancellationToken cancellationToken)
+        {
+            using var response = await _httpClient.GetAsync(url, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(json))
+                return string.Empty;
+
+            var data = JsonConvert.DeserializeObject<IpInfoResponse>(json);
+
+            if (data == null)
+                return string.Empty;
+
+            if (!string.Equals(data.Status, "success", StringComparison.OrdinalIgnoreCase))
+                return string.Empty;
+
+            return data.Query?.Trim() ?? string.Empty;
+        }
+
+        /// <summary>
+        /// 并发请求多个 IP 接口，哪个先成功返回就用哪个
+        /// </summary>
+        private static async Task<string> GetRealIpAsync(CancellationToken cancellationToken = default)
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(6));
+
+            var tasks = _ipApiUrls
+                .Select(url => GetIpFromApiAsync(url, cts.Token))
+                .ToList();
+
+            while (tasks.Count > 0)
+            {
+                var finishedTask = await Task.WhenAny(tasks);
+                tasks.Remove(finishedTask);
+
+                try
+                {
+                    var ip = await finishedTask;
+                    if (!string.IsNullOrWhiteSpace(ip))
+                    {
+                        // 有一个成功了，取消其他请求
+                        cts.Cancel();
+                        return ip;
+                    }
+                }
+                catch
+                {
+                    // 当前这个接口失败，继续等其他接口
+                }
+            }
+
+            return string.Empty;
+        }
+
+        /// <summary>
+        /// 获取本机网卡的IP地址
+        /// </summary>
+        /// <returns></returns>
+        private static List<string> GetPublicIPv4Addresses()
+        {
+            var result = new List<string>();
+
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                // 必须启用
+                if (ni.OperationalStatus != OperationalStatus.Up)
+                    continue;
+
+                // 排除虚拟/隧道/回环
+                if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback ||
+                    ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel)
+                    continue;
+
+                // 必须有网关（否则一般是虚拟或离线网卡）
+                var props = ni.GetIPProperties();
+                if (!props.GatewayAddresses.Any(g =>
+                    g.Address.AddressFamily == AddressFamily.InterNetwork &&
+                    !IPAddress.IsLoopback(g.Address)))
+                    continue;
+
+                foreach (var ua in props.UnicastAddresses)
+                {
+                    var ip = ua.Address;
+
+                    if (ip.AddressFamily != AddressFamily.InterNetwork)
+                        continue;
+
+                    if (IsPrivateIPv4(ip))
+                        continue;
+
+                    result.Add(ip.ToString());
+                }
+            }
+
+            return result;
+        }
+        private sealed class IpInfoResponse
+        {
+            public string? Status { get; set; }
+            public string? Country { get; set; }
+            public string? CountryCode { get; set; }
+            public string? Province { get; set; }
+            public string? City { get; set; }
+            public string? District { get; set; }
+            public string? Isp { get; set; }
+            public string? Areacode { get; set; }
+            public string? Lat { get; set; }
+            public string? Lon { get; set; }
+            public string? Query { get; set; }
+        }
+
+        private static string? _hostCache;
+        private static readonly SemaphoreSlim _host_lock = new(1, 1);
+        public static async Task<string> GetLocalHostAsync()
+        {
+            // 快速路径（无锁）
+            if (!string.IsNullOrWhiteSpace(_hostCache))
+                return _hostCache;
+            await _host_lock.WaitAsync();
+            try
+            {
+                // 双重检查
+                if (!string.IsNullOrWhiteSpace(_hostCache))
+                    return _hostCache;
+                // ① 先尝试本机公网 IPv4
+                try
+                {
+                    var localIp = GetPublicIPv4Addresses().FirstOrDefault();
+
+                    if (!string.IsNullOrWhiteSpace(localIp))
+                    {
+                        _hostCache = localIp;
+                        return _hostCache;
+                    }
+                }
+                catch { }
+                // ② 请求外部接口获取公网 IP
+                try
+                {
+                    var realIp = await GetRealIpAsync();
+                    if (!string.IsNullOrWhiteSpace(realIp))
+                    {
+                        _hostCache = realIp;
+                        return _hostCache;
+                    }
+                }
+                catch { }
+                // ③ 最终兜底
+                _hostCache = "";
+                return _hostCache;
+            }
+            finally
+            {
+                _host_lock.Release();
             }
         }
+
+
+
+        #endregion
+
+
 
     }
 }

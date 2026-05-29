@@ -1,40 +1,109 @@
-﻿using MainClient.Common;
+﻿
+using MainClient.Common;
+using MainClient.Infrastructure;
+using MainClient.Logging;
+using MainClient.ProxyChecker;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using System.Windows.Forms;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Serilog;
+using Serilog.Events;
+
+
+
+
 
 namespace MainClient
 {
     static class Program
     {
-        private static IServiceProvider ServiceProvider { get; set; }
+        private static readonly TimeSpan RestartCooldown = TimeSpan.FromMinutes(2);
+        private static int _restartRequested;
+        private static DateTime _lastRestartRequestUtc = DateTime.MinValue;
+        private static PeriodicTimer? _errorDialogTimer;
+        private static CancellationTokenSource? _errorDialogCts;
+
         /// <summary>
         /// 应用程序的主入口点。
         /// </summary>
         [STAThread]
         static void Main()
         {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            ConfigureServices();
-            Application.Run((MainForm)ServiceProvider.GetService(typeof(MainForm)));
-        }
+            var appSettings = new AppSettings();
+            UserConfigService.Init(appSettings);
+            var configuration = new ConfigurationBuilder()
+                .SetBasePath(AppDomain.CurrentDomain.BaseDirectory)
+                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                .AddJsonFile("appsettings.user.json", optional: true, reloadOnChange: true)
+                .Build();
+            configuration.GetSection("AppSettings").Bind(appSettings);
 
-        private static void ConfigureServices()
-        {
-            var services = new ServiceCollection();
-            services.AddHttpClient();
-            services.AddHttpClient("hailiangip", c =>
+
+            Log.Logger = new LoggerConfiguration()
+                .Enrich.FromLogContext()
+                .MinimumLevel.Information()
+                .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+                .MinimumLevel.Override("System", LogEventLevel.Warning)
+                .MinimumLevel.Override("System.Net.Http.HttpClient", LogEventLevel.Warning)
+                .WriteTo.Logger(lc => lc
+                    .WriteTo.File(
+                        path: Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"logs", "app-.log"),
+                        rollingInterval: RollingInterval.Day,
+                        retainedFileCountLimit: 30,
+                        shared: true,
+                        flushToDiskInterval: TimeSpan.FromSeconds(1),
+                        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}"
+                    ))
+                .WriteTo.Sink<UiLogSink>()
+                .CreateLogger();
+
+            var builder = new HostBuilder()
+                .ConfigureServices((context, services) =>
+                {
+                    services.AddSingleton(appSettings);
+                    services.AddHttpClient();
+                    services.AddSingleton<TrackingUrlProcessor>();
+                    services.AddSingleton<AdxHelper>();
+                    services.AddSingleton<IpHelper>();
+                    services.AddSingleton<ProxyTester>();
+                    services.AddTransient<MainForm>();
+                })
+                .ConfigureLogging(logging =>
+                {
+                    logging.ClearProviders();
+                })
+                .UseSerilog();
+
+            var host = builder.Build();
+            ApplicationConfiguration.Initialize();
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += (sender, e) =>
             {
-                c.BaseAddress = new Uri("http://111.73.45.100:7808");
-                c.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9");
-                c.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36");
-            });
-            services.AddSingleton<MainForm>();
-            ServiceProvider = services.BuildServiceProvider();
+                Log.Error(e.Exception, "Application ThreadException");
+            };
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+            {
+                Log.Fatal(e.ExceptionObject as Exception, "UnhandledException");
+            };
+
+            AppDomain.CurrentDomain.FirstChanceException += (sender, e) =>
+            {
+                //Log.Debug(e.Exception, "FirstChanceException");
+            };
+
+            TaskScheduler.UnobservedTaskException += (sender, e) =>
+            {
+                Log.Error(e.Exception, "TaskScheduler UnobservedTaskException");
+                e.SetObserved();
+            };
+
+            Application.ApplicationExit += (sender, e) =>
+            {
+
+            };
+
+            Application.Run(host.Services.GetRequiredService<MainForm>());
         }
     }
 }

@@ -1,12 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace MainClient.Common
+﻿
+namespace MainClient.Infrastructure
 {
-    public class AppSetting
+    public class AppSettings
     {
-        public const string AppVertion = "2022.09.25.13";
+ 
+
+
+
 
         /// <summary>
         /// 短信接口
@@ -24,35 +24,65 @@ namespace MainClient.Common
 
 
 
-        public string AllIpApiUrl { get; set; }
+        public string ProxyIpUrl { get; set; }
         public string TaskApiUrl { get; set; }
         public string UpdateApiUrl { get; set; }
         /// <summary>
-        /// 获取任务间隔(毫秒)
+        /// 任务提取间隔(毫秒)
         /// </summary>
-        public int GetTaskInterval { get; set; }
+        public int TaskPullIntervalMs { get; set; } = 1000;
         /// <summary>
-        /// 最大并行的任务数量
+        /// 任务提取出错延时(毫秒)
         /// </summary>
-        public int MaximumParallel { get; set; }
+        public int TaskPullErrorDelayMs { get; set; } = 1000;
+        /// <summary>
+        /// 单UV执行间隔
+        /// </summary>
+        public int UvExecutionIntervalMs { get; set; } = 1000;
+
+        /// <summary>
+        /// 任务队列
+        /// </summary>
+        public int ChannelCapacity { get; set; } = 1;
+        /// <summary>
+        /// 并发数量
+        /// </summary>
+        public int MaxConcurrency { get; set; }
         /// <summary>
         /// 独立任务标识
         /// </summary>
-        public string TaskIdentify { get; set; }
-
-        public int MaximumLimitedConcurrency { get; set; }
-
-        public int UVInterval { get; set; }
-
-        public bool IsHiddenMode { get; set; }
-        public bool NoProxy { get; set; }
+        public string TaskName { get; set; } = "";
+        /// <summary>
+        /// 隐藏模式
+        /// </summary>
+        public bool IsHiddenMode { get; set; } = false;
 
         /// <summary>
         /// 任务倍数
         /// </summary>
         public int Multiple { get; set; }
 
-        public bool RealIp { get; set; }
+        /// <summary>
+        /// 代理模式
+        /// </summary>
+        public bool IsProxyMode { get; set; }
+        /// <summary>
+        /// 真实IP
+        /// </summary>
+        public bool IsRealIp { get; set; }
+
+        /// <summary>
+        /// Ip有效性校验
+        /// </summary>
+        public bool CheckIpHealth { get; set; }
+        /// <summary>
+        /// Ip地区校验
+        /// </summary>
+        public bool CheckIpRegion { get; set; }
+        /// <summary>
+        /// IP有效期
+        /// </summary>
+        public int IpValidityDuration { get; set; }
 
         /// <summary>
         /// 主进程重置时间
@@ -77,10 +107,6 @@ namespace MainClient.Common
         public int SendSmsTimeout { get; set; }
         public bool NoneOS { get; set; }
 
-        /// <summary>
-        /// IP区域校验
-        /// </summary>
-        public bool IPAreaCheck { get; set; }
 
 
         /// <summary>
