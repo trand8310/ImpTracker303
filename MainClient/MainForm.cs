@@ -331,6 +331,20 @@ namespace MainClient
 
 
 
+        private void InitializeTaskProcessingServices()
+        {
+            deviceInfoManager = new DeviceInfoManager(setting, _logger, LogWriteLine);
+            ipProcessingService = new IpProcessingService(
+                setting,
+                _logger,
+                new ProxyChecker.ProxyTester(),
+                GetIps,
+                GetIpAreaByLocal,
+                () => applicationrestart,
+                LogWriteLine);
+            trackingUrlProcessor = new TrackingUrlProcessor(FormatUrlText, GridSumissector, FormatUrl_ipinyou, FormatUrl_mafengwo);
+        }
+
         public MainForm(IHttpClientFactory httpClientFactory)
         {
             InitializeComponent();
@@ -343,16 +357,7 @@ namespace MainClient
                 this.setting = new AppSetting();
                 UpdateAppSetting();
             }
-            deviceInfoManager = new DeviceInfoManager(setting, _logger, LogWriteLine);
-            ipProcessingService = new IpProcessingService(
-                setting,
-                _logger,
-                new ProxyChecker.ProxyTester(),
-                GetIps,
-                GetIpAreaByLocal,
-                () => applicationrestart,
-                LogWriteLine);
-            trackingUrlProcessor = new TrackingUrlProcessor(FormatUrlText, GridSumissector, FormatUrl_ipinyou, FormatUrl_mafengwo);
+            InitializeTaskProcessingServices();
             StartMessageProcessor();
 
 
@@ -2517,21 +2522,32 @@ namespace MainClient
 
         private async Task StopRunningTasksAsync()
         {
-            await Task.Delay(5 * 1000);
-            sync.Post((p) =>
+            try
             {
-                this.cts.Cancel();
-                sw.Stop();
-                this.TopMost = false;
-            }, null);
+                await Task.Delay(5 * 1000);
+                sync.Post((p) =>
+                {
+                    this.cts?.Cancel();
+                    sw.Stop();
+                    this.TopMost = false;
+                }, null);
 
-            if (this.taskDispatchManager != null)
-            {
-                await this.taskDispatchManager.StopAsync(8 * 1000);
+                if (this.taskDispatchManager != null)
+                {
+                    await this.taskDispatchManager.StopAsync(8 * 1000);
+                }
+
+                this.cefProcessManager?.KillAll();
+                CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
             }
+            finally
+            {
+                ResetStartButtonAfterStop();
+            }
+        }
 
-            this.cefProcessManager?.KillAll();
-            CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
+        private void ResetStartButtonAfterStop()
+        {
             this.BeginInvoke(new MethodInvoker(() =>
             {
                 this.TotalUVCount = 0;
@@ -2555,8 +2571,16 @@ namespace MainClient
                 Task.Run(StopRunningTasksAsync);
                 return;
             }
-            return refererRates;
+            StartRunningTasks();
         }
+
+        private void StartRunningTasks()
+        {
+            applicationrestart = false;
+            applicationstop = false;
+            UpdateAppSetting();
+
+            this.taskDispatchManager = new TaskDispatchManager(GetTaskQueueCapacity());
 
             this.selfWndHandle = this.Handle;
             this.processOfList = new System.Collections.Concurrent.ConcurrentDictionary<string, ProcessItem>();
@@ -2569,97 +2593,107 @@ namespace MainClient
             this.cts = new CancellationTokenSource();
             this.cts.Token.Register(() =>
             {
-                return string.Empty;
-            }
+                buttonStart.Enabled = false;
+                buttonStart.Text = "停止中...";
+                buttonStart.ForeColor = Color.Black;
+                this.buttonStart.Enabled = false;
+            });
 
-            var referer = refererRates.Where(w => w.Count < (w.Rate * uvCount)).OrderBy(o => o.Count).FirstOrDefault()
-                ?? refererRates.OrderByDescending(o => o.Rate).FirstOrDefault();
-            if (referer == null)
+            #region 获取任务及执行任务
+            foreach (var pendingTask in this.pendingTasks)
             {
-                return string.Empty;
+                this.taskDispatchManager.Writer.TryWrite(pendingTask);
             }
             this.pendingTasks.Clear();
             this.taskDispatchManager.Start(setting.MaximumParallel, ProducerAsync, ConsumerAsync, this.cts.Token);
 
             #endregion
 
-            #region 守护任务
-            var defends = Task.Factory.StartNew(async () =>
-            {
-                var restartGuard = new AppRestartGuard(
-                    setting.MainProcessResetIntervalMinutes,
-                    setting.SendSms,
-                    setting.SendSmsTimeout,
-                    LogWriteLine,
-                    AdxHelper.SendSms);
-                await restartGuard.WaitForRestartAsync(this.cts.Token, setting.SmsName, setting.SmsPhone);
-                if (this.cts.IsCancellationRequested)
-                {
-                    return;
-                }
-                applicationrestart = true;
-                sync.Post((p) =>
-                {
-                    this.buttonStart.Enabled = false;
-                    this.button1.Enabled = false;
-                }, null);
-
-                string tasklist_dat = string.Empty;
-
-                var remainingTasks = this.taskDispatchManager != null ? this.taskDispatchManager.DrainPending() : new List<JToken>();
-                if (remainingTasks.Count > 0)
-                {
-                    ///暂时存任务列表
-                    _logger.LogInformation("暂时存任务列表");
-                    try
-                    {
-                        tasklist_dat = $"tasklist_dat{System.DateTime.Now.Ticks}.tmp";
-                        System.IO.File.WriteAllText(tasklist_dat, JsonConvert.SerializeObject(remainingTasks));
-
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, ex.Message);
-                    }
-
-                }
-                _logger.LogInformation("延时5秒");
-                await Task.Delay(5000);
-                if (this.cefProcessManager != null && this.cefProcessManager.Count > 0)
-                {
-                    _logger.LogInformation("清理未结束的进程");
-                    this.cefProcessManager.KillAll();
-                }
-                CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
-                sync.Post((p) =>
-                {
-                    _logger.LogInformation("清理所有的进程内存");
-                    //NativeMethod.EmptyWorkingSet(Process.GetCurrentProcess().Handle);
-                    string arguments = $"restart";
-                    if (!string.IsNullOrWhiteSpace(tasklist_dat))
-                    {
-                        arguments = $"{arguments} tasklist_dat={tasklist_dat}";
-                    }
-                    _logger.LogInformation($"重启进程{arguments}");
-                    Process.Start(Application.ExecutablePath, arguments);
-                    _logger.LogInformation("关闭当前进程");
-                    try
-                    {
-                        Process.GetCurrentProcess().Kill();
-                    }
-                    catch (Exception ex)
-                    {
-                        CommonHelper.KillProcExec(Process.GetCurrentProcess().Id);
-                        _logger.LogError(ex.Message);
-                        Debug.WriteLine(ex.Message);
-                    }
-
-                }, null);
-
-
-            }, cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-            #endregion
+            StartRestartGuard();
         }
+
+        private void StartRestartGuard()
+        {
+            Task.Factory.StartNew(
+                async () => await RunRestartGuardAsync(),
+                cts.Token,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default).Unwrap();
+        }
+
+        private async Task RunRestartGuardAsync()
+        {
+            var restartGuard = new AppRestartGuard(
+                setting.MainProcessResetIntervalMinutes,
+                setting.SendSms,
+                setting.SendSmsTimeout,
+                LogWriteLine,
+                AdxHelper.SendSms);
+            await restartGuard.WaitForRestartAsync(this.cts.Token, setting.SmsName, setting.SmsPhone);
+            if (this.cts.IsCancellationRequested)
+            {
+                return;
+            }
+            applicationrestart = true;
+            sync.Post((p) =>
+            {
+                this.buttonStart.Enabled = false;
+                this.button1.Enabled = false;
+            }, null);
+
+            string tasklist_dat = string.Empty;
+
+            var remainingTasks = this.taskDispatchManager != null ? this.taskDispatchManager.DrainPending() : new List<JToken>();
+            if (remainingTasks.Count > 0)
+            {
+                ///暂时存任务列表
+                _logger.LogInformation("暂时存任务列表");
+                try
+                {
+                    tasklist_dat = $"tasklist_dat{System.DateTime.Now.Ticks}.tmp";
+                    System.IO.File.WriteAllText(tasklist_dat, JsonConvert.SerializeObject(remainingTasks));
+
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, ex.Message);
+                }
+
+            }
+            _logger.LogInformation("延时5秒");
+            await Task.Delay(5000);
+            if (this.cefProcessManager != null && this.cefProcessManager.Count > 0)
+            {
+                _logger.LogInformation("清理未结束的进程");
+                this.cefProcessManager.KillAll();
+            }
+            CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
+            sync.Post((p) =>
+            {
+                _logger.LogInformation("清理所有的进程内存");
+                //NativeMethod.EmptyWorkingSet(Process.GetCurrentProcess().Handle);
+                string arguments = $"restart";
+                if (!string.IsNullOrWhiteSpace(tasklist_dat))
+                {
+                    arguments = $"{arguments} tasklist_dat={tasklist_dat}";
+                }
+                _logger.LogInformation($"重启进程{arguments}");
+                Process.Start(Application.ExecutablePath, arguments);
+                _logger.LogInformation("关闭当前进程");
+                try
+                {
+                    Process.GetCurrentProcess().Kill();
+                }
+                catch (Exception ex)
+                {
+                    CommonHelper.KillProcExec(Process.GetCurrentProcess().Id);
+                    _logger.LogError(ex.Message);
+                    Debug.WriteLine(ex.Message);
+                }
+
+            }, null);
+        }
+
         private void button1_Click(object sender, EventArgs e)
         {
             buttonStart.Enabled = false;
