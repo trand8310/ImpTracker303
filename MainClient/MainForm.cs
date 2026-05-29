@@ -312,7 +312,7 @@ namespace MainClient
                                 LogWriteLine("客户端消息队列已关闭，消息被忽略");
                             }
                         }
-                        m.Result = IntPtr.One;
+                        m.Result = new IntPtr(1);
                     }
                     catch (Exception ex)
                     {
