@@ -2201,6 +2201,43 @@ namespace MainClient
             }
         }
 
+        private static bool TryParseIpArea(string areaJson, out string region, out string city, out string realIp, out string isp)
+        {
+            region = string.Empty;
+            city = string.Empty;
+            realIp = string.Empty;
+            isp = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(areaJson))
+            {
+                return false;
+            }
+
+            try
+            {
+                var areaData = JObject.Parse(areaJson);
+                var data = areaData.SelectToken("data") as JObject;
+                var content = areaData.SelectToken("content") as JObject ?? data;
+
+                region = data?.Value<string>("region") ?? string.Empty;
+                city = data?.Value<string>("city") ?? string.Empty;
+                realIp = content?.Value<string>("ip")
+                    ?? data?.Value<string>("ip")
+                    ?? areaData.Value<string>("ip")
+                    ?? string.Empty;
+                isp = content?.Value<string>("isp")
+                    ?? data?.Value<string>("isp")
+                    ?? areaData.Value<string>("isp")
+                    ?? string.Empty;
+
+                return data != null || content != null || !string.IsNullOrWhiteSpace(realIp);
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+        }
+
         #endregion
 
         #region 应用设置
@@ -2536,9 +2573,16 @@ namespace MainClient
                             goto redo_getip;
                         }
 
-                            }
-                            realIp = areaData["content"]["ip"].ToString();
-                            isp = areaData["content"]["isp"].ToString();
+                        _logger.LogInformation($"任务[{task["id"]}]:{title},IP:{realIp},地区:{task["address"]}");
+                        if (!string.IsNullOrWhiteSpace(proxy_server) && proxy_server.Contains(":"))
+                        {
+                            ip = proxy_server.Substring(0, proxy_server.IndexOf(":"));
+                        }
+                        else
+                        {
+                            LogWriteLine($"IP异常");
+                            goto redo_getip;
+                        }
 
                         #region IP地区检测
                         string isp = string.Empty;
@@ -2552,10 +2596,15 @@ namespace MainClient
                                 await Task.Delay(new Random().Next(50, 100));
                                 goto redo_getip;
                             }
-                            var areaData = (JObject)JsonConvert.DeserializeObject(areaJson);
+                            if (!TryParseIpArea(areaJson, out var ipRegion, out var ipCity, out var parsedRealIp, out var parsedIsp))
+                            {
+                                LogWriteLine($"IP异常,地区数据无效:{areaJson}");
+                                await Task.Delay(new Random().Next(50, 100));
+                                goto redo_getip;
+                            }
                             if (!string.IsNullOrWhiteSpace(task_province))
                             {
-                                if (string.IsNullOrWhiteSpace(areaData["data"]["region"].ToString()) || !areaData["data"]["region"].ToString().Contains(task_province))
+                                if (string.IsNullOrWhiteSpace(ipRegion) || !ipRegion.Contains(task_province))
                                 {
                                     LogWriteLine("IP异常,省份无效");
                                     await Task.Delay(new Random().Next(50, 100));
@@ -2564,7 +2613,7 @@ namespace MainClient
                             }
                             if (!string.IsNullOrWhiteSpace(task_city))
                             {
-                                if (string.IsNullOrWhiteSpace(areaData["data"]["city"].ToString()) || !areaData["data"]["city"].ToString().Contains(task_city))
+                                if (string.IsNullOrWhiteSpace(ipCity) || !ipCity.Contains(task_city))
                                 {
                                     LogWriteLine("IP异常,城市无效");
                                     await Task.Delay(new Random().Next(50, 100));
@@ -2572,8 +2621,11 @@ namespace MainClient
                                 }
 
                             }
-                            realIp = areaData["content"]["ip"].ToString();
-                            isp = areaData["content"]["isp"].ToString();
+                            if (!string.IsNullOrWhiteSpace(parsedRealIp))
+                            {
+                                realIp = parsedRealIp;
+                            }
+                            isp = parsedIsp;
 
                         }
                         #endregion
