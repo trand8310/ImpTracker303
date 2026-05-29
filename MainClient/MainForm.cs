@@ -2527,58 +2527,53 @@ namespace MainClient
                 this.buttonStart.Enabled = false;
                 Task.Run(async () =>
                 {
-                    await Task.Delay(5 * 1000);
-                    sync.Post((p) =>
+                    var jo = JObject.Parse(proxyJson);
+                    var ipInfo = ResolveSerialProxyItem(jo);
+                    if (ipInfo == null)
                     {
-                        this.cts.Cancel();
-                        sw.Stop();
-                        this.TopMost = false;
-                    }, null);
-                    if (this.taskDispatchManager != null)
-                    {
-                        await this.taskDispatchManager.StopAsync(8 * 1000);
+                        return ProxyParseResult.Fail("IP异常1");
                     }
-                    this.cefProcessManager?.KillAll();
-                    CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
-                    #region 删除物理文件
-                    /*
-                    for (int parallelIndex = 1; parallelIndex <= setting.MaximumParallel; parallelIndex++)
-                    {
-                        try
-                        {
-                            Directory.Delete(System.IO.Path.Combine(System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase, "chrome", "User Data", parallelIndex.ToString()), recursive: true);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine(ex.Message);
-                        }
-                        try
-                        {
-                            CommonHelper.DeleteCookieFile(System.IO.Path.Combine(System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase, "chrome", "User Data", parallelIndex.ToString()));
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine(ex.Message);
-                        }
-                    }
-                    */
-                    #endregion
-                    this.BeginInvoke(new MethodInvoker(() =>
-                    {
-                        this.TotalUVCount = 0;
-                        buttonStart.Text = "开始";
-                        buttonStart.ForeColor = Color.Black;
-                        buttonStart.Enabled = true;
-                        this.buttonStart.Enabled = true;
-                    }));
-                });
-                return;
-            }
-            applicationrestart = false;
-            applicationstop = false;
-            UpdateAppSetting();
 
-            this.taskDispatchManager = new TaskDispatchManager(GetTaskQueueCapacity());
+                    ipContext.ProxyServer = $"{ipInfo.Value<string>("ip")?.Trim()}:{ipInfo.Value<string>("port")?.Trim()}";
+                    ipContext.RealIp = ipInfo.Value<string>("realIp") ?? ipInfo.Value<string>("rip") ?? string.Empty;
+                }
+                else
+                {
+                    var ipData = JObject.Parse(proxyJson);
+                    ipContext.TaskProvince = ipData.Value<string>("province")?.Trim() ?? string.Empty;
+                    ipContext.TaskCity = ipData.Value<string>("city")?.Trim() ?? string.Empty;
+
+                    if (proxyJson.Contains("data") && proxyJson.Contains("success") && proxyJson.Contains("province") && proxyJson.Contains("city"))
+                    {
+                        var dataToken = ipData["data"];
+                        if (dataToken?.Type == JTokenType.String)
+                        {
+                            ipContext.ProxyServer = dataToken.Value<string>()?.Trim() ?? string.Empty;
+                        }
+                        else
+                        {
+                            var nestedData = dataToken as JObject ?? JObject.Parse(dataToken?.ToString() ?? "{}");
+                            var ipItem = nestedData["data"]?.FirstOrDefault() as JObject;
+                            if (ipItem == null)
+                            {
+                                return ProxyParseResult.Fail("IP异常1");
+                            }
+
+                            ipContext.ProxyServer = $"{ipItem.Value<string>("ip")?.Trim()}:{ipItem.Value<string>("port")?.Trim()}";
+                            ipContext.RealIp = ipItem.Value<string>("rip") ?? string.Empty;
+                        }
+                        await Task.Delay(new Random().Next(500, 1000), this.cts.Token);
+                    }
+                    else
+                    {
+                        ipContext.ProxyServer = ipData["data"]?.ToString().Trim() ?? string.Empty;
+                    }
+                }
+
+                if (!TrySetProxyIp(ipContext))
+                {
+                    return ProxyParseResult.Fail("IP异常");
+                }
 
             this.selfWndHandle = this.Handle;
             this.processOfList = new System.Collections.Concurrent.ConcurrentDictionary<string, ProcessItem>();
@@ -2591,16 +2586,11 @@ namespace MainClient
             this.cts = new CancellationTokenSource();
             this.cts.Token.Register(() =>
             {
-                buttonStart.Enabled = false;
-                buttonStart.Text = "停止中...";
-                buttonStart.ForeColor = Color.Black;
-                this.buttonStart.Enabled = false;
-            });
-
-            #region 获取任务及执行任务
-            foreach (var pendingTask in this.pendingTasks)
+                return ProxyParseResult.Fail("IP异常,JSON解析失败:" + ex.Message);
+            }
+            catch (Exception ex)
             {
-                this.taskDispatchManager.Writer.TryWrite(pendingTask);
+                return ProxyParseResult.Fail("IP异常:" + ex.Message);
             }
             this.pendingTasks.Clear();
             this.taskDispatchManager.Start(setting.MaximumParallel, ProducerAsync, ConsumerAsync, this.cts.Token);
