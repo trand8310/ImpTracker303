@@ -2512,6 +2512,7 @@ namespace MainClient
                             ipContext.ProxyServer = $"{ipItem.Value<string>("ip")?.Trim()}:{ipItem.Value<string>("port")?.Trim()}";
                             ipContext.RealIp = ipItem.Value<string>("rip") ?? string.Empty;
                         }
+                        await Task.Delay(new Random().Next(500, 1000), this.cts.Token);
                     }
                     else
                     {
@@ -2830,6 +2831,17 @@ namespace MainClient
                         return;
                     }
 
+                    for (int uvIndex = 1; uvIndex <= uvCount; uvIndex++)
+                    {
+                        if (this.cts.IsCancellationRequested || applicationrestart)
+                        {
+                            break;
+                        }
+                        if (process.HasExited)
+                        {
+                            jobFirst = true;
+                            break;
+                        }
 
                     int abl = 100;
                     if (task.ContainsKey("abl") && int.TryParse(task["abl"].ToString(), out int ablr))
