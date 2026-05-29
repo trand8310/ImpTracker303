@@ -1,4 +1,4 @@
-
+﻿
 using System.Runtime.InteropServices;
 
 namespace AdxImp.Win32
@@ -22,7 +22,7 @@ namespace AdxImp.Win32
             ref COPYDATASTRUCT lParam,
             uint fuFlags,
             uint uTimeout,
-            IntPtr lpdwResult
+            out IntPtr lpdwResult
         );
 
 
@@ -31,7 +31,7 @@ namespace AdxImp.Win32
         [DllImport("user32.dll")]
         public static extern IntPtr FindWindowEx(IntPtr parentWindow, IntPtr previousChildWindow, string windowClass, string windowTitle);
         [DllImport("user32.dll")]
-        public static extern IntPtr GetWindowThreadProcessId(IntPtr window, ref int process);
+        public static extern IntPtr GetWindowThreadProcessId(IntPtr window, out int process);
         public static IntPtr[] GetProcessWindows(int process, string title)
         {
             IntPtr[] apRet = (new IntPtr[256]);
@@ -40,8 +40,8 @@ namespace AdxImp.Win32
             do
             {
                 pLast = FindWindowEx(IntPtr.Zero, pLast, null, title);
-                int iProcess_ = 0;
-                GetWindowThreadProcessId(pLast, ref iProcess_);
+                int iProcess_;
+                GetWindowThreadProcessId(pLast, out iProcess_);
                 if (iProcess_ == process) apRet[iCount++] = pLast;
             } while (pLast != IntPtr.Zero);
             System.Array.Resize(ref apRet, iCount);

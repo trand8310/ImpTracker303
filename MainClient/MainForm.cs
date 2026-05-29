@@ -252,6 +252,7 @@ namespace MainClient
             await copyDataSendSemaphore.WaitAsync(this.cts?.Token ?? CancellationToken.None);
             try
             {
+                IntPtr sendResult;
                 var ret = NativeMethod.SendMessageTimeout(
                     clientProcess.ClientWindowHandle,
                     WinTypes.WM_COPYDATA,
@@ -259,7 +260,7 @@ namespace MainClient
                     ref cds,
                     WinTypes.SMTO_ABORTIFHUNG,
                     3000,
-                    IntPtr.Zero
+                    out sendResult
                 );
 
                 if (ret == IntPtr.Zero)
