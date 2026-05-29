@@ -2515,6 +2515,33 @@ namespace MainClient
             return setting.Multiple > 1 ? 3 + setting.Multiple : 3;
         }
 
+        private async Task StopRunningTasksAsync()
+        {
+            await Task.Delay(5 * 1000);
+            sync.Post((p) =>
+            {
+                this.cts.Cancel();
+                sw.Stop();
+                this.TopMost = false;
+            }, null);
+
+            if (this.taskDispatchManager != null)
+            {
+                await this.taskDispatchManager.StopAsync(8 * 1000);
+            }
+
+            this.cefProcessManager?.KillAll();
+            CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
+            this.BeginInvoke(new MethodInvoker(() =>
+            {
+                this.TotalUVCount = 0;
+                buttonStart.Text = "开始";
+                buttonStart.ForeColor = Color.Black;
+                buttonStart.Enabled = true;
+                this.buttonStart.Enabled = true;
+            }));
+        }
+
         private void buttonStart_Click(object sender, EventArgs e)
         {
             if (buttonStart.Text.Equals("停止"))
@@ -2525,55 +2552,11 @@ namespace MainClient
                 buttonStart.Text = "停止中...";
                 buttonStart.ForeColor = Color.Black;
                 this.buttonStart.Enabled = false;
-                Task.Run(async () =>
-                {
-                    var jo = JObject.Parse(proxyJson);
-                    var ipInfo = ResolveSerialProxyItem(jo);
-                    if (ipInfo == null)
-                    {
-                        return ProxyParseResult.Fail("IP异常1");
-                    }
-
-                    ipContext.ProxyServer = $"{ipInfo.Value<string>("ip")?.Trim()}:{ipInfo.Value<string>("port")?.Trim()}";
-                    ipContext.RealIp = ipInfo.Value<string>("realIp") ?? ipInfo.Value<string>("rip") ?? string.Empty;
-                }
-                else
-                {
-                    var ipData = JObject.Parse(proxyJson);
-                    ipContext.TaskProvince = ipData.Value<string>("province")?.Trim() ?? string.Empty;
-                    ipContext.TaskCity = ipData.Value<string>("city")?.Trim() ?? string.Empty;
-
-                    if (proxyJson.Contains("data") && proxyJson.Contains("success") && proxyJson.Contains("province") && proxyJson.Contains("city"))
-                    {
-                        var dataToken = ipData["data"];
-                        if (dataToken?.Type == JTokenType.String)
-                        {
-                            ipContext.ProxyServer = dataToken.Value<string>()?.Trim() ?? string.Empty;
-                        }
-                        else
-                        {
-                            var nestedData = dataToken as JObject ?? JObject.Parse(dataToken?.ToString() ?? "{}");
-                            var ipItem = nestedData["data"]?.FirstOrDefault() as JObject;
-                            if (ipItem == null)
-                            {
-                                return ProxyParseResult.Fail("IP异常1");
-                            }
-
-                            ipContext.ProxyServer = $"{ipItem.Value<string>("ip")?.Trim()}:{ipItem.Value<string>("port")?.Trim()}";
-                            ipContext.RealIp = ipItem.Value<string>("rip") ?? string.Empty;
-                        }
-                        await Task.Delay(new Random().Next(500, 1000), this.cts.Token);
-                    }
-                    else
-                    {
-                        ipContext.ProxyServer = ipData["data"]?.ToString().Trim() ?? string.Empty;
-                    }
-                }
-
-                if (!TrySetProxyIp(ipContext))
-                {
-                    return ProxyParseResult.Fail("IP异常");
-                }
+                Task.Run(StopRunningTasksAsync);
+                return;
+            }
+            return refererRates;
+        }
 
             this.selfWndHandle = this.Handle;
             this.processOfList = new System.Collections.Concurrent.ConcurrentDictionary<string, ProcessItem>();
@@ -2586,11 +2569,14 @@ namespace MainClient
             this.cts = new CancellationTokenSource();
             this.cts.Token.Register(() =>
             {
-                return ProxyParseResult.Fail("IP异常,JSON解析失败:" + ex.Message);
+                return string.Empty;
             }
-            catch (Exception ex)
+
+            var referer = refererRates.Where(w => w.Count < (w.Rate * uvCount)).OrderBy(o => o.Count).FirstOrDefault()
+                ?? refererRates.OrderByDescending(o => o.Rate).FirstOrDefault();
+            if (referer == null)
             {
-                return ProxyParseResult.Fail("IP异常:" + ex.Message);
+                return string.Empty;
             }
             this.pendingTasks.Clear();
             this.taskDispatchManager.Start(setting.MaximumParallel, ProducerAsync, ConsumerAsync, this.cts.Token);
