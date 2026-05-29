@@ -49,7 +49,17 @@ namespace MainClient
         //IOS 设备参数
         private ConcurrentQueue<JToken> ios_dev_queues = new ConcurrentQueue<JToken>();
         private IHttpClientFactory _httpClientFactory;
-        private int selfWndHandle = 0;
+        private IntPtr selfWndHandle = IntPtr.Zero;
+        private static readonly int CopyDataSendConcurrency = Math.Max(8, Math.Min(64, Environment.ProcessorCount * 4));
+        private readonly SemaphoreSlim copyDataSendSemaphore = new SemaphoreSlim(CopyDataSendConcurrency, CopyDataSendConcurrency);
+        private readonly CancellationTokenSource messageProcessingCts = new CancellationTokenSource();
+        private readonly Channel<string> messageChannel = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            AllowSynchronousContinuations = false
+        });
+        private Task messageProcessingTask = Task.CompletedTask;
 
         #region  LogWrite
         void LogCallback(params object[] parameters)
@@ -142,18 +152,83 @@ namespace MainClient
         #endregion
 
         #region 消息处理
-        private void ResolveMessage(string value)
+        private void StartMessageProcessor()
         {
-            var message = (JObject)JsonConvert.DeserializeObject(value);
-            if (message["Msg"].ToString().Equals("CLIENT_STARTED"))
+            messageProcessingTask = Task.Run(() => ProcessClientMessagesAsync(messageProcessingCts.Token));
+        }
+
+        private async Task ProcessClientMessagesAsync(CancellationToken token)
+        {
+            try
             {
-                var clientId = message["ClientId"].ToString();
-                var clientHandle = Convert.ToInt32(message["ClientHandle"].ToString());
-                this.cefProcessManager?.UpdateWindowHandle(clientId, clientHandle);
+                await foreach (var message in messageChannel.Reader.ReadAllAsync(token))
+                {
+                    ResolveMessage(message);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "客户端消息处理队列异常");
+                LogWriteLine("客户端消息处理队列异常：" + ex.Message);
             }
         }
-        private nint SendLoadUrlMessage(ProcessItem clientProcess, string url, string url2, JObject _args, string userAgent, string referer, JObject param, JToken devInfo, string cacheIndex)
+
+        private void ResolveMessage(string value)
         {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return;
+            }
+
+            try
+            {
+                var message = JObject.Parse(value);
+                var msg = message.Value<string>("Msg");
+                if (!string.Equals(msg, "CLIENT_STARTED", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                var clientId = message.Value<string>("ClientId");
+                if (string.IsNullOrWhiteSpace(clientId))
+                {
+                    LogWriteLine("客户端注册消息缺少ClientId");
+                    return;
+                }
+
+                var clientHandleValue = message.Value<long?>("ClientHandle");
+                if (!clientHandleValue.HasValue || clientHandleValue.Value == 0)
+                {
+                    LogWriteLine($"客户端注册消息句柄无效：ClientId={clientId}");
+                    return;
+                }
+
+                var clientHandle = new IntPtr(clientHandleValue.Value);
+                this.cefProcessManager?.UpdateWindowHandle(clientId, clientHandle);
+            }
+            catch (JsonException ex)
+            {
+                _logger?.LogWarning(ex, "客户端消息JSON解析失败：{Message}", value);
+                LogWriteLine("客户端消息JSON解析失败：" + ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "客户端消息处理失败：{Message}", value);
+                LogWriteLine("客户端消息处理失败：" + ex.Message);
+            }
+        }
+
+        private async Task<IntPtr> SendLoadUrlMessage(ProcessItem clientProcess, string url, string url2, JObject _args, string userAgent, string referer, JObject param, JToken devInfo, string cacheIndex)
+        {
+            if (clientProcess == null || clientProcess.ClientWindowHandle == IntPtr.Zero)
+            {
+                LogWriteLine("LOAD消息发送失败：客户端窗口句柄为空");
+                return IntPtr.Zero;
+            }
+
             var message = JsonConvert.SerializeObject(JObject.FromObject(new
             {
                 Msg = "LOAD",
@@ -165,58 +240,88 @@ namespace MainClient
                 DevInfo = devInfo,
                 Param = param,
                 CacheIndex = cacheIndex
-            })); ;
+            }));
 
-            byte[] sarr = System.Text.Encoding.Default.GetBytes(message);
-            COPYDATASTRUCT cds;
-            cds.dwData = (IntPtr)100;
-            cds.lpData = message;
-            cds.cbData = sarr.Length + 1;
-            //return NativeMethod.SendMessage(clientProcess.ClientWindowHandle, WinTypes.WM_COPYDATA, 0, ref cds);
-            IntPtr sendResult;
-            var ret = NativeMethod.SendMessageTimeout(
-                clientProcess.ClientWindowHandle,
-                WinTypes.WM_COPYDATA,
-                this.Handle,
-                ref cds,
-                WinTypes.SMTO_ABORTIFHUNG,
-                3000,
-                out sendResult
-            );
-            if (ret == IntPtr.Zero)
+            var cds = new COPYDATASTRUCT
             {
-                int error = Marshal.GetLastWin32Error();
-                //LogWriteLine($"注册消息发送失败或超时：ClientId={clientId}, Error={error}");
-            }
-            //LogWriteLine($"注册消息发送成功：ClientId={clientId}, ProcessId={processId}");
-            return ret;
+                dwData = new IntPtr(100),
+                lpData = message,
+                cbData = (message.Length + 1) * 2
+            };
 
+            await copyDataSendSemaphore.WaitAsync(this.cts?.Token ?? CancellationToken.None);
+            try
+            {
+                IntPtr sendResult;
+                var ret = NativeMethod.SendMessageTimeout(
+                    clientProcess.ClientWindowHandle,
+                    WinTypes.WM_COPYDATA,
+                    selfWndHandle,
+                    ref cds,
+                    WinTypes.SMTO_ABORTIFHUNG,
+                    3000,
+                    out sendResult
+                );
+
+                if (ret == IntPtr.Zero)
+                {
+                    var error = Marshal.GetLastWin32Error();
+                    LogWriteLine($"LOAD消息发送失败或超时：ProcessId={clientProcess.ProcessId}, Hwnd={clientProcess.ClientWindowHandle}, Error={error}");
+                }
+
+                return ret;
+            }
+            finally
+            {
+                copyDataSendSemaphore.Release();
+            }
         }
-        private static void SendShowFormMessage(int clientWindowHandle, bool show = true)
+
+        private static void SendShowFormMessage(IntPtr clientWindowHandle, bool show = true)
         {
+            if (clientWindowHandle == IntPtr.Zero)
+            {
+                return;
+            }
+
             var message = JsonConvert.SerializeObject(JObject.FromObject(new
             {
                 Msg = show ? "SHOW" : "HIDE",
             }));
 
-            byte[] sarr = System.Text.Encoding.Default.GetBytes(message);
-            COPYDATASTRUCT cds;
-            cds.dwData = (IntPtr)100;
-            cds.lpData = message;
-            cds.cbData = sarr.Length + 1;
+            var cds = new COPYDATASTRUCT
+            {
+                dwData = new IntPtr(100),
+                lpData = message,
+                cbData = (message.Length + 1) * 2
+            };
             NativeMethod.SendMessage(clientWindowHandle, WinTypes.WM_COPYDATA, 0, ref cds);
         }
+
         protected override void DefWndProc(ref System.Windows.Forms.Message m)
         {
             switch (m.Msg)
             {
                 case WinTypes.WM_COPYDATA:
-                    COPYDATASTRUCT data = new COPYDATASTRUCT();
-                    Type myType = data.GetType();
-                    data = (COPYDATASTRUCT)m.GetLParam(myType);
-                    if (!string.IsNullOrWhiteSpace(data.lpData))
+                    try
                     {
-                        Task.Run(() => ResolveMessage(data.lpData));
+                        var data = new COPYDATASTRUCT();
+                        data = (COPYDATASTRUCT)m.GetLParam(data.GetType());
+                        var rawMessage = data.lpData;
+                        if (!string.IsNullOrWhiteSpace(rawMessage))
+                        {
+                            if (!messageChannel.Writer.TryWrite(rawMessage))
+                            {
+                                LogWriteLine("客户端消息队列已关闭，消息被忽略");
+                            }
+                        }
+                        m.Result = IntPtr.One;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError(ex, "WM_COPYDATA消息入队失败");
+                        LogWriteLine("WM_COPYDATA消息入队失败：" + ex.Message);
+                        m.Result = IntPtr.Zero;
                     }
                     break;
                 default:
@@ -242,6 +347,7 @@ namespace MainClient
                 UpdateAppSetting();
             }
             _ipHelper = new IpHelper(httpClientFactory);
+            StartMessageProcessor();
 
 
             List<Control> controls = new List<Control>();
@@ -2430,6 +2536,9 @@ namespace MainClient
                             goto redo_getip;
                         }
 
+                            }
+                            realIp = areaData["content"]["ip"].ToString();
+                            isp = areaData["content"]["isp"].ToString();
 
                         #region IP地区检测
                         string isp = string.Empty;
@@ -2471,12 +2580,21 @@ namespace MainClient
 
 
 
+                    }
 
 
 
 
                     }
 
+                    string url = task["url"].ToString();
+                    string url2 = task["url2"].ToString();
+                    int uvCount = Convert.ToInt32(task["uv"].ToString());
+                    bool huichuan = false;
+                    if (task["huichuan"] != null && task["huichuan"].ToString().Equals("on"))
+                    {
+                        huichuan = true;
+                    }
 
 
 
@@ -2668,7 +2786,7 @@ namespace MainClient
 
                         }
                         _args["os"] = (int)os;
-                        var msgret = SendLoadUrlMessage(client, uv_url, uv_url2, _args, ua, referer, task, dev, cacheIndex);
+                        var msgret = await SendLoadUrlMessage(client, uv_url, uv_url2, _args, ua, referer, task, dev, cacheIndex);
                         Interlocked.Increment(ref TotalUVCount);
                         LogWriteLine($"提交任务[{task["id"]}]:{task["title"]},process=[{consumerId}],os={os},osv={dev["osv"]},cache={cacheIndex},{proxy_server},{uvIndex}/{uvCount}");
                         sync.Post((pi) =>
@@ -2728,13 +2846,13 @@ namespace MainClient
             }
         }
 
-        private Process CreateNewProcess(string filePath, int hWnd, string clientId, int consumerId)
+        private Process CreateNewProcess(string filePath, IntPtr hWnd, string clientId, int consumerId)
         {
             try
             {
                 ProcessStartInfo processInfo = new ProcessStartInfo();
                 processInfo.FileName = filePath;
-                processInfo.Arguments = $"--main-handle={hWnd} --hidden-mode={setting.IsHiddenMode} client-id={clientId} --consumer-id={consumerId}";
+                processInfo.Arguments = $"--main-handle={hWnd.ToInt64()} --hidden-mode={setting.IsHiddenMode} --client-id={clientId} --consumer-id={consumerId}";
                 processInfo.UseShellExecute = false;
                 processInfo.CreateNoWindow = true;
                 Process process = new Process();
@@ -2885,7 +3003,7 @@ namespace MainClient
 
             this.taskDispatchManager = new TaskDispatchManager(GetTaskQueueCapacity());
 
-            this.selfWndHandle = (int)this.Handle;
+            this.selfWndHandle = this.Handle;
             this.processOfList = new System.Collections.Concurrent.ConcurrentDictionary<string, ProcessItem>();
             this.processOfList.Clear();
             this.cefProcessManager = new CefClientProcessManager(this.processOfList, LogWriteLine);
@@ -3046,7 +3164,10 @@ namespace MainClient
 
         private void MainForm_FormClosed(object sender, FormClosedEventArgs e)
         {
-
+            messageChannel.Writer.TryComplete();
+            messageProcessingCts.Cancel();
+            copyDataSendSemaphore.Dispose();
+            messageProcessingCts.Dispose();
         }
 
         private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
