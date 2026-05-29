@@ -49,6 +49,7 @@ namespace MainClient
 
 
         private TaskDispatchManager taskDispatchManager = null;
+        private readonly TaskStatisticsManager taskStatisticsManager = new TaskStatisticsManager();
         private CefClientProcessManager cefProcessManager = null;
 
         private IntPtr selfWndHandle = IntPtr.Zero;
@@ -189,6 +190,13 @@ namespace MainClient
             {
                 var message = JObject.Parse(value);
                 var msg = message.Value<string>("Msg");
+                if (string.Equals(msg, "TASK_STATUS", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(msg, "TASK_STAGE", StringComparison.OrdinalIgnoreCase))
+                {
+                    RecordTaskStageFromClient(message);
+                    return;
+                }
+
                 if (!string.Equals(msg, "CLIENT_STARTED", StringComparison.OrdinalIgnoreCase))
                 {
                     return;
@@ -647,8 +655,9 @@ namespace MainClient
 
                         try
                         {
-                            var id = item["id"]?.ToString();
+                            var id = TaskStatisticsManager.GetTaskId(item);
 
+                            RecordTaskStage(item, TaskStageNames.Start, consumerId);
                             LogWriteLine($"Consumer-{consumerId} 开始处理任务 id={id}");
 
                             await HandleTaskAsync(
@@ -657,6 +666,7 @@ namespace MainClient
                                 token
                             ).ConfigureAwait(false);
 
+                            RecordTaskStage(item, TaskStageNames.Complete, consumerId);
                             LogWriteLine($"Consumer-{consumerId} 处理完成 id={id}");
                         }
                         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -666,6 +676,7 @@ namespace MainClient
                         catch (Exception ex)
                         {
                             // 单个任务异常，不让整个消费者挂掉
+                            RecordTaskStage(item, TaskStageNames.Fail, consumerId, ex.Message);
                             LogWriteLine($"Consumer-{consumerId} 处理任务异常: {ex}");
                         }
                     }
@@ -827,6 +838,8 @@ namespace MainClient
         private void StartRunningTasks()
         {
             UpdateAppSetting();
+            this.taskStatisticsManager.Reset();
+            SubscribeTaskStatisticsEvents(this.taskStatisticsManager);
             this.taskDispatchManager = new TaskDispatchManager(GetTaskQueueCapacity(), LogWriteLine, ex => LogWriteLine(ex.ToString()));
             SubscribeTaskDispatchManagerEvents(this.taskDispatchManager);
             this.selfWndHandle = this.Handle;
@@ -855,6 +868,57 @@ namespace MainClient
             StartRestartGuard();
         }
 
+
+
+        private void RecordTaskStage(JToken task, string stage, int? consumerId = null, string? message = null)
+        {
+            var record = this.taskStatisticsManager.Record(task, stage, consumerId, message);
+            var logMessage = $"任务阶段统计：id={record.TaskId}, stage={record.Stage}, consumer={record.ConsumerId?.ToString() ?? "-"}";
+            if (!string.IsNullOrWhiteSpace(record.Message))
+            {
+                logMessage += $", message={record.Message}";
+            }
+            LogInfo(logMessage);
+        }
+
+        private void RecordTaskStageFromClient(JObject message)
+        {
+            var taskId = message.Value<string>("TaskId")
+                ?? message.Value<string>("taskId")
+                ?? message.Value<string>("Id")
+                ?? message.Value<string>("id");
+            var stage = message.Value<string>("Stage")
+                ?? message.Value<string>("stage")
+                ?? message.Value<string>("Status")
+                ?? message.Value<string>("status");
+            var consumerId = message.Value<int?>("ConsumerId") ?? message.Value<int?>("consumerId");
+            var detail = message.Value<string>("Message") ?? message.Value<string>("message");
+
+            if (string.IsNullOrWhiteSpace(stage))
+            {
+                LogWriteLine("客户端任务状态消息缺少Stage/Status");
+                return;
+            }
+
+            var record = this.taskStatisticsManager.Record(taskId, stage, consumerId, detail);
+            LogInfo($"客户端任务阶段统计：id={record.TaskId}, stage={record.Stage}, consumer={record.ConsumerId?.ToString() ?? "-"}");
+        }
+
+        private void SubscribeTaskStatisticsEvents(TaskStatisticsManager manager)
+        {
+            manager.StageChanged -= TaskStatisticsManager_StageChanged;
+            manager.StageChanged += TaskStatisticsManager_StageChanged;
+        }
+
+        private void TaskStatisticsManager_StageChanged(object? sender, TaskStageChangedEventArgs e)
+        {
+            if (e.Summary.TotalStageCount % 20 == 0 ||
+                string.Equals(e.Record.Stage, TaskStageNames.Complete, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(e.Record.Stage, TaskStageNames.Fail, StringComparison.OrdinalIgnoreCase))
+            {
+                LogInfo(this.taskStatisticsManager.BuildSummaryText());
+            }
+        }
 
         private void SubscribeTaskDispatchManagerEvents(TaskDispatchManager manager)
         {
