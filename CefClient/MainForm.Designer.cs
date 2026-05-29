@@ -42,21 +42,20 @@
             // LogTextBox
             // 
             this.LogTextBox.Dock = System.Windows.Forms.DockStyle.Bottom;
-            this.LogTextBox.Location = new System.Drawing.Point(0, 995);
-            this.LogTextBox.Margin = new System.Windows.Forms.Padding(4, 2, 4, 2);
+            this.LogTextBox.Location = new System.Drawing.Point(0, 828);
+            this.LogTextBox.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.LogTextBox.Multiline = true;
             this.LogTextBox.Name = "LogTextBox";
             this.LogTextBox.ScrollBars = System.Windows.Forms.ScrollBars.Both;
-            this.LogTextBox.Size = new System.Drawing.Size(1510, 156);
+            this.LogTextBox.Size = new System.Drawing.Size(1258, 131);
             this.LogTextBox.TabIndex = 4;
             this.LogTextBox.WordWrap = false;
             // 
             // buttonStart
             // 
-            this.buttonStart.Location = new System.Drawing.Point(593, 13);
-            this.buttonStart.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.buttonStart.Location = new System.Drawing.Point(494, 11);
             this.buttonStart.Name = "buttonStart";
-            this.buttonStart.Size = new System.Drawing.Size(66, 32);
+            this.buttonStart.Size = new System.Drawing.Size(55, 27);
             this.buttonStart.TabIndex = 9;
             this.buttonStart.Text = "测试";
             this.buttonStart.UseVisualStyleBackColor = true;
@@ -65,9 +64,8 @@
             // pictureBoxSreenshot
             // 
             this.pictureBoxSreenshot.Location = new System.Drawing.Point(0, 0);
-            this.pictureBoxSreenshot.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
             this.pictureBoxSreenshot.Name = "pictureBoxSreenshot";
-            this.pictureBoxSreenshot.Size = new System.Drawing.Size(412, 915);
+            this.pictureBoxSreenshot.Size = new System.Drawing.Size(343, 762);
             this.pictureBoxSreenshot.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
             this.pictureBoxSreenshot.TabIndex = 11;
             this.pictureBoxSreenshot.TabStop = false;
@@ -78,40 +76,38 @@
             this.panel1.Controls.Add(this.buttonStart);
             this.panel1.Dock = System.Windows.Forms.DockStyle.Top;
             this.panel1.Location = new System.Drawing.Point(0, 0);
-            this.panel1.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
             this.panel1.Name = "panel1";
-            this.panel1.Size = new System.Drawing.Size(1510, 62);
+            this.panel1.Size = new System.Drawing.Size(1258, 52);
             this.panel1.TabIndex = 12;
             // 
             // textBox1
             // 
-            this.textBox1.Location = new System.Drawing.Point(10, 14);
-            this.textBox1.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.textBox1.Location = new System.Drawing.Point(8, 12);
             this.textBox1.Name = "textBox1";
-            this.textBox1.Size = new System.Drawing.Size(575, 28);
+            this.textBox1.Size = new System.Drawing.Size(480, 25);
             this.textBox1.TabIndex = 13;
             // 
             // panel2
             // 
             this.panel2.Controls.Add(this.pictureBoxSreenshot);
             this.panel2.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.panel2.Location = new System.Drawing.Point(0, 62);
+            this.panel2.Location = new System.Drawing.Point(0, 52);
+            this.panel2.Margin = new System.Windows.Forms.Padding(2, 2, 2, 2);
             this.panel2.Name = "panel2";
-            this.panel2.Size = new System.Drawing.Size(1510, 933);
+            this.panel2.Size = new System.Drawing.Size(1258, 776);
             this.panel2.TabIndex = 13;
             // 
             // MainForm
             // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(144F, 144F);
+            this.AutoScaleDimensions = new System.Drawing.SizeF(120F, 120F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
-            this.ClientSize = new System.Drawing.Size(1510, 1151);
+            this.ClientSize = new System.Drawing.Size(1258, 959);
             this.Controls.Add(this.panel2);
             this.Controls.Add(this.panel1);
             this.Controls.Add(this.LogTextBox);
-            this.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
             this.Name = "MainForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            this.Text = "曝光浏览器";
+            this.Text = "CefClient";
             this.Load += new System.EventHandler(this.MainForm_Load);
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxSreenshot)).EndInit();
             this.panel1.ResumeLayout(false);

@@ -90,7 +90,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Common\CefCachePaths.cs" />
+    <Compile Include="Common\CefBrowserExtensions.cs" />
     <Compile Include="Common\DeviceViewportMatcher.cs" />
+    <Compile Include="Common\AdHelper.cs" />
     <Compile Include="ControlExtensions.cs" />
     <Compile Include="Handler\CachedRequestHandler.cs" />
     <Compile Include="Handler\CachedResourceRequestHandler.cs" />
@@ -108,6 +110,7 @@
     <Compile Include="MainForm.Designer.cs">
       <DependentUpon>MainForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="Win32\NativeMethod.cs" />
     <Compile Include="Program.cs">
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -116,6 +119,7 @@
       <DesignTime>True</DesignTime>
       <DependentUpon>Resources.resx</DependentUpon>
     </Compile>
+    <Compile Include="Win32\WinTypes.cs" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="MainForm.resx">

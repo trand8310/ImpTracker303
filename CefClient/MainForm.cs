@@ -1,28 +1,17 @@
 ﻿using CefClient.Common;
-using CefClient.Common.CefClient.Common;
 using CefClient.Handler;
 using CefSharp;
-using CefSharp.DevTools;
-using CefSharp.DevTools.Autofill;
 using CefSharp.DevTools.Emulation;
-using CefSharp.DevTools.Network;
-using CefSharp.Handler;
 using CefSharp.OffScreen;
-using CefSharp.Structs;
+using Imp.Win32;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
-using System.Collections.Specialized;
-using System.ComponentModel;
-using System.Data;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Net.Http;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -34,19 +23,10 @@ namespace CefClient
 {
     public partial class MainForm : Form
     {
-        #region Win32
-        [DllImport("User32.dll", EntryPoint = "SendMessage")]
-        private static extern int SendMessage(int hWnd, int msg, int wParam, ref COPYDATASTRUCT lParam);
-        [DllImport("User32.dll", EntryPoint = "FindWindow")]
-        private static extern int FindWindow(string lpClassName, string lpWindowName);
-        const int WM_COPYDATA = 0x004A;
-        const int WM_MYSYMPLE = 0x005A;
-        #endregion
-
-        private int hMainWnd = 0;
-        private bool showform = true;
-        private string uuid = string.Empty;
-        private readonly ResourceCacheManager _sharedResourceCacheManager;
+        private IntPtr hMainWnd = IntPtr.Zero;
+        private bool isHiddenMode = false;
+        private string _clientId = string.Empty;
+        private ResourceCacheManager _sharedResourceCacheManager;
 
 
         #region  LogWrite
@@ -119,242 +99,11 @@ namespace CefClient
         #endregion
 
 
-        private Task UiInvokeAsync(Action action, CancellationToken cancellationToken = default)
-        {
-            return UiInvokeAsync(() =>
-            {
-                action();
-                return true;
-            }, cancellationToken);
-        }
-
-        private Task<T> UiInvokeAsync<T>(Func<T> func, CancellationToken cancellationToken = default)
-        {
-            var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var _owner = this;
-            if (this.IsDisposed || this.Disposing)
-            {
-                tcs.TrySetException(new ObjectDisposedException(nameof(_owner)));
-                return tcs.Task;
-            }
-
-            if (cancellationToken.IsCancellationRequested)
-            {
-                tcs.TrySetCanceled(cancellationToken);
-                return tcs.Task;
-            }
-
-            void Execute()
-            {
-                try
-                {
-                    if (_owner.IsDisposed || _owner.Disposing)
-                    {
-                        tcs.TrySetException(new ObjectDisposedException(nameof(_owner)));
-                        return;
-                    }
-
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        tcs.TrySetCanceled(cancellationToken);
-                        return;
-                    }
-
-                    tcs.TrySetResult(func());
-                }
-                catch (Exception ex)
-                {
-                    tcs.TrySetException(ex);
-                }
-            }
-
-            try
-            {
-                if (this.InvokeRequired)
-                {
-                    _owner.BeginInvoke((Action)Execute);
-                }
-                else
-                {
-                    Execute();
-                }
-            }
-            catch (Exception ex)
-            {
-                tcs.TrySetException(ex);
-            }
-
-            return tcs.Task;
-        }
-
-        public Task<bool> LoadRequestAsync(
-            ChromiumWebBrowser browser,
-            string url,
-            string requestMethod = "GET",
-            string referrer = null,
-            WebHeaderCollection headers = null,
-            byte[] postDataBytes = null,
-            int timeoutMs = 15000)
-        {
-            var tcs = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-
-            if (browser == null ||
-                browser.IsDisposed ||
-                string.IsNullOrWhiteSpace(url))
-            {
-                tcs.TrySetResult(false);
-                return tcs.Task;
-            }
-
-            EventHandler<FrameLoadEndEventArgs> frameLoadEndHandler = null;
-            EventHandler<LoadErrorEventArgs> loadErrorHandler = null;
-
-            var cts = new CancellationTokenSource();
-
-            void Cleanup()
-            {
-                try
-                {
-                    browser.FrameLoadEnd -= frameLoadEndHandler;
-                    browser.LoadError -= loadErrorHandler;
-                    cts.Cancel();
-                    cts.Dispose();
-                }
-                catch
-                {
-                }
-            }
-
-            frameLoadEndHandler = (s, e) =>
-            {
-                if (!e.Frame.IsMain)
-                    return;
-
-                bool success =
-                    e.HttpStatusCode >= 200 &&
-                    e.HttpStatusCode < 400;
-
-                Cleanup();
-                tcs.TrySetResult(success);
-            };
-
-            loadErrorHandler = (s, e) =>
-            {
-                if (!e.Frame.IsMain)
-                    return;
-
-                // Aborted 有时是新导航打断旧导航，不一定是真失败
-                Cleanup();
-                tcs.TrySetResult(false);
-            };
-
-            browser.FrameLoadEnd += frameLoadEndHandler;
-            browser.LoadError += loadErrorHandler;
-
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await Task.Delay(timeoutMs, cts.Token);
-
-                    if (!tcs.Task.IsCompleted)
-                    {
-                        try
-                        {
-                            browser.GetBrowser()?.StopLoad();
-                        }
-                        catch
-                        {
-                        }
-
-                        Cleanup();
-                        tcs.TrySetResult(false);
-                    }
-                }
-                catch (TaskCanceledException)
-                {
-                }
-            });
-
-            try
-            {
-                var frame = browser.GetMainFrame();
-
-                if (frame == null || !frame.IsValid)
-                {
-                    Cleanup();
-                    tcs.TrySetResult(false);
-                    return tcs.Task;
-                }
-
-                bool initializePostData =
-                    string.Equals(requestMethod, "POST", StringComparison.OrdinalIgnoreCase);
-
-                var request = frame.CreateRequest(
-                    initializePostData: initializePostData);
-
-                if (initializePostData &&
-                    postDataBytes != null &&
-                    postDataBytes.Length > 0)
-                {
-                    request.InitializePostData();
-
-                    if (request.PostData != null)
-                    {
-                        request.PostData.AddData(postDataBytes);
-                    }
-                }
-
-                request.Url = url;
-                request.Method = string.IsNullOrWhiteSpace(requestMethod)
-                    ? "GET"
-                    : requestMethod.ToUpperInvariant();
-
-                if (headers != null && headers.HasKeys())
-                {
-                    var originHeaders = request.Headers ?? new NameValueCollection();
-
-                    foreach (string keyName in headers.AllKeys)
-                    {
-                        if (!string.IsNullOrWhiteSpace(keyName))
-                        {
-                            originHeaders.Set(keyName, headers[keyName]);
-                        }
-                    }
-
-                    request.Headers = originHeaders;
-                }
-
-                if (!string.IsNullOrWhiteSpace(referrer))
-                {
-                    request.SetReferrer(
-                        referrer,
-                        ReferrerPolicy.NeverClearReferrer);
-                }
-
-                frame.LoadRequest(request);
-            }
-            catch
-            {
-                Cleanup();
-                tcs.TrySetResult(false);
-            }
-            return tcs.Task;
-        }
-
-
-
-
-
         private async Task MainAsync(string url, string url2, string userAgent, string referer,
             JObject taskParam, JObject devInfo, JObject _args, string cachePath,
-            Action<string> addressChanged, Action<string> LogWriteLine,
-            Action<byte[], int, int> DisplayScreenshot, bool screenshot = false)
+            Action<string> addressChanged, Action<string> log,
+            Action<byte[], int, int> screenshot, bool hasScreenshot = false)
         {
-
-
-
 
             var proxy_server = _args["proxy_server"]?.ToString();
             var browserSettings = new BrowserSettings()
@@ -410,7 +159,7 @@ namespace CefClient
             var pvTotal = taskParam["pv"].Value<int>();
             var devProfile = os == 7 ? DeviceViewportMatcher.Match(sw, sh, DeviceSystemType.Windows) : os == 2 ? DeviceViewportMatcher.Match(sw, sh, DeviceSystemType.IOS, string.IsNullOrWhiteSpace(name) ? null : name) : DeviceViewportMatcher.Match(sw, sh, DeviceSystemType.Android);
 
-            LogWriteLine($"缓存:{cachePath},sleep={sleepInt},os={os},pv={pvTotal},osv={devInfo["osv"]?.Value<string>()}");
+            log($"缓存:{cachePath},sleep={sleepInt},os={os},pv={pvTotal},osv={devInfo["osv"]?.Value<string>()}");
 
             //K30 PRO:393 * 873
             //Pixel5: 393 * 851
@@ -433,7 +182,7 @@ namespace CefClient
                     browser.RequestHandler = cachedRequestHandler;
 
 
-                    if (screenshot)
+                    if (hasScreenshot)
                     {
                         browser.AddressChanged += (s, args) =>
                         {
@@ -514,7 +263,7 @@ namespace CefClient
                             {
                                 if (!string.IsNullOrWhiteSpace(referer))
                                 {
-                                    await LoadRequestAsync(browser, url, "GET", referrer: referer);
+                                    await browser.LoadRequestAsync(url, "GET", referrer: referer);
                                 }
                                 else
                                 {
@@ -522,7 +271,7 @@ namespace CefClient
                                     if (!loadResponse.Success)
                                     {
                                         // 加载失败
-                                        LogWriteLine(
+                                        log(
                                             $"LoadUrlAsync失败: Url={url}, " +
                                             $"Success={loadResponse?.Success}, " +
                                             $"ErrorCode={loadResponse?.ErrorCode}, " +
@@ -537,7 +286,7 @@ namespace CefClient
 
 
 
-                            if (screenshot)
+                            if (hasScreenshot)
                             {
                                 await Task.Delay(TimeSpan.FromSeconds(5));
                                 var host = browser.GetBrowserHost();
@@ -545,7 +294,7 @@ namespace CefClient
                                 var screenshotBytes = await browser.CaptureScreenshotAsync();
                                 if (screenshotBytes != null || screenshotBytes.Length > 0)
                                 {
-                                    DisplayBitmap(screenshotBytes, devProfile.ViewportWidth, devProfile.ViewportHeight);
+                                    this.PreviewScreenshot(screenshotBytes, devProfile.ViewportWidth, devProfile.ViewportHeight);
                                 }
                             }
 
@@ -562,14 +311,14 @@ namespace CefClient
                         catch (Exception ex)
                         {
 
-                            LogWriteLine($"err:{ex.Message}");
+                            log($"err:{ex.Message}");
                         }
                         finally
                         {
                             var flushed = cachedRequestHandler.WaitForPendingWrites(15000);
                             if (!flushed)
                             {
-                                LogWriteLine("缓存落盘等待超时(15s)，可能仍有少量资源未写入。");
+                                log("缓存落盘等待超时(15s)，可能仍有少量资源未写入。");
                             }
                         }
 
@@ -578,218 +327,585 @@ namespace CefClient
             }
 
         }
-        private void DisplayBitmap(byte[] screenshotBytes, int sw, int sh)
-        {
-            using (var stream = new MemoryStream(screenshotBytes))
-            {
-                using (var image = Image.FromStream(stream))
-                {
-                    var oldImage = pictureBoxSreenshot.Image;
-                    var screenshot = new Bitmap(image);
-                    if (screenshot != null)
-                    {
-                        pictureBoxSreenshot.Image = null;
-                        pictureBoxSreenshot.Image = screenshot;
-                        UiInvokeAsync(() =>
-                        {
-                            pictureBoxSreenshot.Width = sw;
-                            pictureBoxSreenshot.Height = sh;
-                        });
 
-                    }
-                    oldImage?.Dispose();
+
+        #region PreviewScreenshot
+        private readonly object _screenshotLock = new object();
+
+        private void PreviewScreenshot(byte[] screenshotBytes, int sw, int sh)
+        {
+            lock (_screenshotLock)
+            {
+                PreviewScreenshotCore(screenshotBytes, sw, sh);
+            }
+        }
+
+        private void PreviewScreenshotCore(byte[] screenshotBytes, int sw, int sh)
+        {
+            if (screenshotBytes == null || screenshotBytes.Length == 0)
+                return;
+
+            if (pictureBoxSreenshot == null || pictureBoxSreenshot.IsDisposed)
+                return;
+
+            if (sw <= 0 || sh <= 0)
+                return;
+
+            if (sw > 10000 || sh > 10000)
+                return;
+
+            Bitmap newBitmap = null;
+
+            try
+            {
+                using (var stream = new MemoryStream(screenshotBytes))
+                using (var image = Image.FromStream(stream, false, false))
+                {
+                    newBitmap = new Bitmap(image);
                 }
-            }
 
-
-
-        }
-        private async Task<string> CloseProxyServer(string ipkey, string port)
-        {
-            using (HttpClient httpClient = new HttpClient())
-            {
-                HttpResponseMessage response = await httpClient.GetAsync($"{ipkey}&pattern=json&port={port}");
-                response.EnsureSuccessStatusCode();
-                return await response.Content.ReadAsStringAsync();
-            }
-        }
-        private async Task ResolveMessage(string value)
-        {
-            var message = (JObject)JsonConvert.DeserializeObject(value);
-
-            if (message["Msg"].ToString().Equals("LOAD"))
-            {
-                LogWriteLine(value);
-                var url = message["Url"].ToString();
-                var url2 = message["Url2"]?.ToString();
-                var referer = message["Referer"]?.ToString();
-                var args = (JObject)JsonConvert.DeserializeObject(message["args"].ToString());
-                var proxy_server = args["proxy_server"]?.ToString();
-                var userAgent = message["UserAgent"].ToString();
-                var taskParam = (JObject)JsonConvert.DeserializeObject(message["Param"].ToString());
-                var devInfo = (JObject)JsonConvert.DeserializeObject(message["DevInfo"].ToString());
-                var cacheIndex = message["CacheIndex"].ToString();
-                var ua = devInfo["ua"].Value<string>();
-                if (!string.IsNullOrEmpty(url))
+                this.InvokeOnUiThreadIfRequired(() =>
                 {
-                    var cachePath = System.IO.Path.Combine(CefCachePaths.RootCachePath, cacheIndex);
-                    if (!System.IO.Directory.Exists(cachePath))
+                    if (pictureBoxSreenshot == null || pictureBoxSreenshot.IsDisposed)
                     {
-                        System.IO.Directory.CreateDirectory(cachePath);
+                        newBitmap?.Dispose();
+                        newBitmap = null;
+                        return;
                     }
-                    LogWriteLine($"执行任务[{taskParam["id"]}]:{taskParam["title"]},{proxy_server},{url},{referer},{cacheIndex},{ua},开始");
+
+                    Image oldImage = pictureBoxSreenshot.Image;
+
+                    pictureBoxSreenshot.SuspendLayout();
+
                     try
                     {
-                        await MainAsync(url, url2, userAgent, referer, taskParam, devInfo, args, cachePath, (address) =>
-                        {
-                            UiInvokeAsync(() =>
-                            {
-                                this.textBox1.Text = address;
-                            });
-                        }, LogWriteLine, DisplayBitmap, this.showform);
-
+                        pictureBoxSreenshot.Image = null;
+                        pictureBoxSreenshot.Size = new Size(sw, sh);
+                        pictureBoxSreenshot.Image = newBitmap;
+                        newBitmap = null;
                     }
-                    catch (Exception ex)
+                    finally
                     {
-                        LogWriteLine(ex.InnerException?.Message);
+                        pictureBoxSreenshot.ResumeLayout();
                     }
-                    LogWriteLine($"执行任务[{taskParam["id"]}]:{taskParam["title"]},{proxy_server},{cacheIndex},完成");
 
+                    oldImage?.Dispose();
+                });
+            }
+            catch
+            {
+                newBitmap?.Dispose();
+                // 这里建议写日志
+            }
+        }
+
+        #endregion
+
+
+        #region ResolveMessage
+        private readonly SemaphoreSlim _loadSemaphore = new SemaphoreSlim(1, 1);
+        private volatile bool _stopping = false;
+        private Task RunFireAndForgetAsync(Func<Task> action)
+        {
+            return Task.Run(async () =>
+            {
+                try
+                {
+                    await action().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    LogWriteLine("后台任务异常：" + ex);
+                }
+            });
+        }
+        private static JObject TryParseObject(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                return null;
+
+            try
+            {
+                return JObject.Parse(json);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+        private static string GetString(JObject obj, string name, string defaultValue = "")
+        {
+            if (obj == null)
+                return defaultValue;
+
+            var token = obj[name];
+
+            if (token == null || token.Type == JTokenType.Null)
+                return defaultValue;
+
+            return token.ToString();
+        }
+        private static JObject GetObject(JObject obj, string name)
+        {
+            if (obj == null)
+                return new JObject();
+
+            var token = obj[name];
+
+            if (token == null || token.Type == JTokenType.Null)
+                return new JObject();
+
+            if (token.Type == JTokenType.Object)
+                return (JObject)token;
+
+            var text = token.ToString();
+
+            if (string.IsNullOrWhiteSpace(text))
+                return new JObject();
+
+            try
+            {
+                return JObject.Parse(text);
+            }
+            catch
+            {
+                return new JObject();
+            }
+        }
+        private async Task ResolveMessageSafeAsync(string value)
+        {
+            try
+            {
+                await ResolveMessageAsync(value).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogWriteLine("ResolveMessage 异常：" + ex);
+            }
+        }
+        private async Task ResolveMessageAsync(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return;
+
+            var message = TryParseObject(value);
+            if (message == null)
+            {
+                LogWriteLine("消息JSON格式错误：" + value);
+                return;
+            }
+
+            var msg = GetString(message, "Msg");
+
+            switch (msg.ToUpperInvariant())
+            {
+                case "LOAD":
+                    await HandleLoadAsync(message, value).ConfigureAwait(false);
+                    break;
+
+                case "STOP":
+                    await HandleStopAsync().ConfigureAwait(false);
+                    break;
+
+                case "SHOW":
+                    HandleShow();
+                    break;
+
+                case "HIDE":
+                    HandleHide();
+                    break;
+
+                default:
+                    LogWriteLine("未知消息类型：" + msg);
+                    break;
+            }
+        }
+        private async Task HandleLoadAsync(JObject message, string rawMessage)
+        {
+            if (_stopping)
+            {
+                LogWriteLine("进程正在停止，忽略LOAD任务");
+                return;
+            }
+
+            await _loadSemaphore.WaitAsync().ConfigureAwait(false);
+
+            try
+            {
+                if (_stopping)
+                {
+                    LogWriteLine("进程正在停止，忽略LOAD任务");
+                    return;
+                }
+
+                LogWriteLine(rawMessage);
+
+                var url = GetString(message, "Url");
+                if (string.IsNullOrWhiteSpace(url))
+                {
+                    LogWriteLine("LOAD任务Url为空，已忽略");
+                    return;
+                }
+
+                var url2 = GetString(message, "Url2");
+                var referer = GetString(message, "Referer");
+                var userAgent = GetString(message, "UserAgent");
+                var cacheIndex = GetString(message, "CacheIndex", "default");
+
+                var args = GetObject(message, "args");
+                var taskParam = GetObject(message, "Param");
+                var devInfo = GetObject(message, "DevInfo");
+
+                var proxyServer = GetString(args, "proxy_server");
+                var ua = GetString(devInfo, "ua");
+
+                var taskId = GetString(taskParam, "id");
+                var taskTitle = GetString(taskParam, "title");
+
+                var cachePath = Path.Combine(CefCachePaths.RootCachePath, cacheIndex);
+
+                try
+                {
+                    Directory.CreateDirectory(cachePath);
+                }
+                catch (Exception ex)
+                {
+                    LogWriteLine($"创建缓存目录失败：{cachePath}，异常：{ex}");
+                    return;
+                }
+
+                LogWriteLine($"执行任务[{taskId}]:{taskTitle},{proxyServer},{url},{referer},{cacheIndex},{ua},开始");
+
+                try
+                {
+                    await MainAsync(
+                        url,
+                        url2,
+                        userAgent,
+                        referer,
+                        taskParam,
+                        devInfo,
+                        args,
+                        cachePath,
+                        address =>
+                        {
+                            SetTextBoxAddress(address);
+                        },
+                        LogWriteLine,
+                        PreviewScreenshot,
+                        this.isHiddenMode
+                    ).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    LogWriteLine($"执行任务[{taskId}]异常：" + ex);
+                }
+                finally
+                {
+                    LogWriteLine($"执行任务[{taskId}]:{taskTitle},{proxyServer},{cacheIndex},完成");
                 }
             }
-            else if (message["Msg"].ToString().Equals("STOP"))
+            finally
             {
-                await Task.Run(async () =>
+                _loadSemaphore.Release();
+            }
+        }
+        private async Task HandleStopAsync()
+        {
+            if (_stopping)
+                return;
+
+            _stopping = true;
+
+            LogWriteLine("5秒后退出该进程");
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            }
+            catch
+            {
+            }
+
+            ExitProcess();
+        }
+        private void HandleShow()
+        {
+            this.InvokeOnUiThreadIfRequired(() =>
+            {
+                this.isHiddenMode = true;
+                this.SetVisibleCore(true);
+            });
+        }
+        private void HandleHide()
+        {
+            this.InvokeOnUiThreadIfRequired(() =>
+            {
+                this.isHiddenMode = false;
+                this.SetVisibleCore(false);
+            });
+        }
+        private void SetTextBoxAddress(string address)
+        {
+            this.InvokeOnUiThreadIfRequired(() =>
+            {
+                if (!this.IsDisposed && this.textBox1 != null && !this.textBox1.IsDisposed)
                 {
-                    LogWriteLine("5秒后退出该进程");
-                    await Task.Delay(TimeSpan.FromSeconds(5));
-                    this.InvokeOnUiThreadIfRequired(() =>
+                    this.textBox1.Text = address ?? string.Empty;
+                }
+            });
+        }
+        private void ExitProcess()
+        {
+            try
+            {
+                this.InvokeOnUiThreadIfRequired(() =>
+                {
+                    try
                     {
-                        System.Environment.Exit(0);
-                    });
+                        Application.Exit();
+                    }
+                    catch
+                    {
+                        Environment.Exit(0);
+                    }
                 });
             }
-            else if (message["Msg"].ToString().Equals("SHOW"))
+            catch
             {
-                this.InvokeOnUiThreadIfRequired(() =>
-                {
-                    this.showform = true;
-                    this.SetVisibleCore(true);
-                });
-            }
-            else if (message["Msg"].ToString().Equals("HIDE"))
-            {
-                this.InvokeOnUiThreadIfRequired(() =>
-                {
-                    this.showform = false;
-                    this.SetVisibleCore(false);
-                });
+                Environment.Exit(0);
             }
         }
         protected override void DefWndProc(ref System.Windows.Forms.Message m)
         {
             switch (m.Msg)
             {
-                case WM_COPYDATA:
-                    COPYDATASTRUCT data = new COPYDATASTRUCT();
-                    Type myType = data.GetType();
-                    data = (COPYDATASTRUCT)m.GetLParam(myType);
-                    if (!string.IsNullOrWhiteSpace(data.lpData))
+                case WinTypes.WM_COPYDATA:
                     {
-                        Task.Run(async () => await ResolveMessage(data.lpData));
+                        try
+                        {
+                            var data = new COPYDATASTRUCT();
+                            var type = data.GetType();
+                            data = (COPYDATASTRUCT)m.GetLParam(type);
+
+                            var rawMessage = data.lpData;
+
+                            if (!string.IsNullOrWhiteSpace(rawMessage))
+                            {
+                                _ = RunFireAndForgetAsync(() => ResolveMessageSafeAsync(rawMessage));
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogWriteLine("WM_COPYDATA处理异常：" + ex);
+                        }
+
+                        break;
                     }
-                    break;
+
                 default:
                     base.DefWndProc(ref m);
                     break;
             }
         }
-        public MainForm()
-        {
-            InitializeComponent();
+        #endregion
 
+        private void InitResourceCacheManager()
+        {
             _sharedResourceCacheManager = new ResourceCacheManager(new ResourceCacheOptions
             {
                 CacheRoot = Path.Combine(CefCachePaths.GlobalCachePath, "resource_cache"),
                 MaxMemoryCaptureBytes = 10 * 1024 * 1024,
                 CacheExpireDays = 3,
+
                 EnableImageCache = true,
                 EnableScriptCache = true,
                 EnableCssCache = true,
                 EnableFontCache = true,
                 EnableVideoCache = false
             });
+        }
+        private static string GetCommandLineString(string[] args, string prefix, string defaultValue = "")
+        {
+            if (args == null || args.Length == 0 || string.IsNullOrWhiteSpace(prefix))
+                return defaultValue;
 
-            var commandLineArgs = System.Environment.GetCommandLineArgs();
-            foreach (var c in commandLineArgs)
+            var arg = args.FirstOrDefault(x =>
+                x.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+
+            if (string.IsNullOrWhiteSpace(arg))
+                return defaultValue;
+
+            return arg.Substring(prefix.Length).Trim();
+        }
+        private static IntPtr GetCommandLineIntPtr(string[] args, string prefix)
+        {
+            var value = GetCommandLineString(args, prefix);
+
+            if (string.IsNullOrWhiteSpace(value))
+                return IntPtr.Zero;
+
+            if (long.TryParse(value, out var handleValue) && handleValue != 0)
+                return new IntPtr(handleValue);
+
+            return IntPtr.Zero;
+        }
+        private static bool GetCommandLineBool(string[] args, string prefix, bool defaultValue = false)
+        {
+            var value = GetCommandLineString(args, prefix);
+
+            if (string.IsNullOrWhiteSpace(value))
+                return defaultValue;
+
+            if (bool.TryParse(value, out var result))
+                return result;
+
+            if (value == "1")
+                return true;
+
+            if (value == "0")
+                return false;
+
+            if (value.Equals("yes", StringComparison.OrdinalIgnoreCase) ||
+                value.Equals("y", StringComparison.OrdinalIgnoreCase) ||
+                value.Equals("on", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (value.Equals("no", StringComparison.OrdinalIgnoreCase) ||
+                value.Equals("n", StringComparison.OrdinalIgnoreCase) ||
+                value.Equals("off", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return defaultValue;
+        }
+        private void ParseCommandLineArgs()
+        {
+            var args = Environment.GetCommandLineArgs();
+            hMainWnd = GetCommandLineIntPtr(args, "--main-window-handle=");
+            isHiddenMode = GetCommandLineBool(args, "--hidden-mode=", false);
+            _clientId = GetCommandLineString(args, "--client-id=");
+        }
+
+
+        private void MainForm_Shown(object sender, EventArgs e)
+        {
+            if (isHiddenMode)
             {
-                if (c.StartsWith("hwnd="))
-                {
-                    hMainWnd = Convert.ToInt32(c.Split('=')[1]);
-                }
-                else if (c.StartsWith("showform="))
-                {
-                    showform = Convert.ToBoolean(c.Split('=')[1]);
-                }
-                else if (c.StartsWith("uuid="))
-                {
-                    uuid = c.Split('=')[1];
-                }
+                this.Hide();
             }
-
-            SendRegMessage();
-            LogWriteLine($"{Process.GetCurrentProcess().Id},{this.Handle},{System.DateTime.Now.ToString("HH:mm:ss")}");
+            if (!string.IsNullOrWhiteSpace(_clientId))
+                NotifyMainProcessClientStarted(_clientId);
+            LogWriteLine($"{Process.GetCurrentProcess().Id},{this.Handle},{DateTime.Now:HH:mm:ss}");
         }
         protected override void SetVisibleCore(bool value)
         {
-            value = showform;
-            LogWriteLine($"SetVisibleCore={showform}");
+            if (isHiddenMode && !IsHandleCreated)
+            {
+                base.SetVisibleCore(false);
+                return;
+            }
             base.SetVisibleCore(value);
         }
-        private void SendRegMessage()
+
+        public MainForm()
         {
-            var currentProcess = Process.GetCurrentProcess();
-            var message = JsonConvert.SerializeObject(JObject.FromObject(new
+            InitializeComponent();
+            InitResourceCacheManager();
+            ParseCommandLineArgs();
+            this.Shown += MainForm_Shown;
+        }
+
+        private void NotifyMainProcessClientStarted(string clientId)
+        {
+            if (string.IsNullOrWhiteSpace(clientId))
             {
-                Msg = "REG",
-                WindowHandle = (int)this.Handle,
-                uuid = this.uuid,
-                ProcessId = currentProcess.Id,
-                ProcessPath = currentProcess.MainModule.FileName,
-            }));
+                LogWriteLine("注册失败：clientId为空");
+                return;
+            }
 
-            byte[] sarr = System.Text.Encoding.Default.GetBytes(message);
-            COPYDATASTRUCT cds;
-            cds.dwData = (IntPtr)100;
-            cds.lpData = message;
-            cds.cbData = sarr.Length + 1;
-            SendMessage(hMainWnd, WM_COPYDATA, 0, ref cds);
-        }
-        private void MainForm_Load(object sender, EventArgs e)
-        {
+            if (hMainWnd == IntPtr.Zero)
+            {
+                LogWriteLine("注册失败：主窗口句柄为空");
+                return;
+            }
 
+            string processPath = string.Empty;
+            int processId = 0;
+
+            try
+            {
+                using (var currentProcess = Process.GetCurrentProcess())
+                {
+                    processId = currentProcess.Id;
+
+                    try
+                    {
+                        processPath = currentProcess.MainModule?.FileName ?? string.Empty;
+                    }
+                    catch
+                    {
+                        processPath = Application.ExecutablePath;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogWriteLine("获取当前进程信息失败：" + ex);
+            }
+
+            var payload = new JObject
+            {
+                ["Msg"] = "CLIENT_STARTED",
+                ["ClientHandle"] = this.Handle.ToInt64(),
+                ["ClientId"] = clientId,
+                ["ProcessId"] = processId,
+                ["ProcessPath"] = processPath
+            };
+
+            string message = payload.ToString(Formatting.None);
+
+            try
+            {
+                var cds = new COPYDATASTRUCT
+                {
+                    dwData = new IntPtr(100),
+                    lpData = message,
+
+                    // Unicode 一个字符 2 字节，最后补一个 \0，也是 2 字节
+                    cbData = (message.Length + 1) * 2
+                };
+
+                IntPtr sendResult;
+
+                var ret = NativeMethod.SendMessageTimeout(
+                    hMainWnd,
+                    WinTypes.WM_COPYDATA,
+                    this.Handle,
+                    ref cds,
+                    WinTypes.SMTO_ABORTIFHUNG,
+                    3000,
+                    out sendResult
+                );
+
+                if (ret == IntPtr.Zero)
+                {
+                    int error = Marshal.GetLastWin32Error();
+                    LogWriteLine($"注册消息发送失败或超时：ClientId={clientId}, Error={error}");
+                    return;
+                }
+
+                LogWriteLine($"注册消息发送成功：ClientId={clientId}, ProcessId={processId}");
+            }
+            catch (Exception ex)
+            {
+                LogWriteLine("发送注册消息异常：" + ex);
+            }
         }
-        private static async Task<string> GetIp(string url)
-        {
-            HttpClient httpClient = new HttpClient();
-            HttpResponseMessage response = await httpClient.GetAsync(url);
-            response.EnsureSuccessStatusCode();
-            return await response.Content.ReadAsStringAsync();
-        }
-        private static async Task<string> GetDev()
-        {
-            HttpClient httpClient = new HttpClient();
-            HttpResponseMessage response = await httpClient.GetAsync("http://117.21.200.18:9000/api/getdev.php?count=1&type=android");
-            response.EnsureSuccessStatusCode();
-            return await response.Content.ReadAsStringAsync();
-        }
-        private static async Task<string> GetTask(string name)
-        {
-            HttpClient httpClient = new HttpClient();
-            HttpResponseMessage response = await httpClient.GetAsync($"http://117.21.200.19/client-v2.php?type=1&action=getTask&task={name}&test=0&_t={System.DateTime.Now.Ticks}");
-            response.EnsureSuccessStatusCode();
-            return await response.Content.ReadAsStringAsync();
-        }
+
+
+
+
+
         private void buttonStart_Click(object sender, EventArgs e)
         {
             string urlText = textBox1.Text;
@@ -797,14 +913,9 @@ namespace CefClient
             Task.Factory.StartNew(async () =>
             {
 
-                var dev = (JObject)JObject.Parse(await GetDev())["data"][0];
-                var task = (JObject)JObject.Parse(await GetTask("dytest"))["task"][0];
-
-
-
-
+                var dev = (JObject)JObject.Parse(await AdHelper.GetDev())["data"][0];
+                var task = (JObject)JObject.Parse(await AdHelper.GetTask("dytest"))["task"][0];
                 var ua = dev["ua"].Value<string>();
-
                 string proxy_server = null;
                 string realIp = null;
                 var url = task["url"].Value<string>();
@@ -821,8 +932,6 @@ namespace CefClient
                     _args["IsProxyMode"] = false;
                     _args["proxy_server"] = null;
                 }
-
-
                 _args["os"] = 1;
                 proxy_server = null;
                 var cachePath = System.IO.Path.Combine(System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase, "User Data", "1", "s0");
@@ -832,18 +941,17 @@ namespace CefClient
                     {
                         this.textBox1.Text = address;
                     });
-                }, LogWriteLine, DisplayBitmap, screenshot: true);
+                }, LogWriteLine, screenshot: PreviewScreenshot, hasScreenshot: true);
                 LogWriteLine($"{proxy_server},完成");
 
             });
 
         }
+
+        private void MainForm_Load(object sender, EventArgs e)
+        {
+
+        }
     }
-    public struct COPYDATASTRUCT
-    {
-        public IntPtr dwData;
-        public int cbData;
-        [MarshalAs(UnmanagedType.LPStr)]
-        public string lpData;
-    }
+
 }

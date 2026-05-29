@@ -36,6 +36,7 @@ namespace CefClient
                 CefCachePaths.GlobalCachePath = Path.Combine(baseDataDirectory, "Global");
             }
 
+
             Directory.CreateDirectory(CefCachePaths.RootCachePath);
             Directory.CreateDirectory(CefCachePaths.GlobalCachePath);
 
