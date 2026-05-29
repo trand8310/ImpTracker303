@@ -2555,11 +2555,8 @@ namespace MainClient
                 Task.Run(StopRunningTasksAsync);
                 return;
             }
-            applicationrestart = false;
-            applicationstop = false;
-            UpdateAppSetting();
-
-            this.taskDispatchManager = new TaskDispatchManager(GetTaskQueueCapacity());
+            return refererRates;
+        }
 
             this.selfWndHandle = this.Handle;
             this.processOfList = new System.Collections.Concurrent.ConcurrentDictionary<string, ProcessItem>();
@@ -2572,16 +2569,14 @@ namespace MainClient
             this.cts = new CancellationTokenSource();
             this.cts.Token.Register(() =>
             {
-                buttonStart.Enabled = false;
-                buttonStart.Text = "停止中...";
-                buttonStart.ForeColor = Color.Black;
-                this.buttonStart.Enabled = false;
-            });
+                return string.Empty;
+            }
 
-            #region 获取任务及执行任务
-            foreach (var pendingTask in this.pendingTasks)
+            var referer = refererRates.Where(w => w.Count < (w.Rate * uvCount)).OrderBy(o => o.Count).FirstOrDefault()
+                ?? refererRates.OrderByDescending(o => o.Rate).FirstOrDefault();
+            if (referer == null)
             {
-                this.taskDispatchManager.Writer.TryWrite(pendingTask);
+                return string.Empty;
             }
             this.pendingTasks.Clear();
             this.taskDispatchManager.Start(setting.MaximumParallel, ProducerAsync, ConsumerAsync, this.cts.Token);
