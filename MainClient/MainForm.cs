@@ -38,16 +38,13 @@ namespace MainClient
         /// UV合计数量
         /// </summary>
         private int TotalUVCount = 0;
-        private IpHelper _ipHelper;
-        private ProxyChecker.ProxyTester _ipTester = new ProxyChecker.ProxyTester();
         private Stopwatch sw = new Stopwatch();
         private TaskDispatchManager taskDispatchManager = null;
         private CefClientProcessManager cefProcessManager = null;
+        private DeviceInfoManager deviceInfoManager = null;
+        private IpProcessingService ipProcessingService = null;
+        private TrackingUrlProcessor trackingUrlProcessor = null;
         private List<JToken> pendingTasks = new List<JToken>();
-        //ANDROID 设备参数
-        private ConcurrentQueue<JToken> android_dev_queues = new ConcurrentQueue<JToken>();
-        //IOS 设备参数
-        private ConcurrentQueue<JToken> ios_dev_queues = new ConcurrentQueue<JToken>();
         private IHttpClientFactory _httpClientFactory;
         private IntPtr selfWndHandle = IntPtr.Zero;
         private static readonly int CopyDataSendConcurrency = Math.Max(8, Math.Min(64, Environment.ProcessorCount * 4));
@@ -346,7 +343,16 @@ namespace MainClient
                 this.setting = new AppSetting();
                 UpdateAppSetting();
             }
-            _ipHelper = new IpHelper(httpClientFactory);
+            deviceInfoManager = new DeviceInfoManager(setting, _logger, LogWriteLine);
+            ipProcessingService = new IpProcessingService(
+                setting,
+                _logger,
+                new ProxyChecker.ProxyTester(),
+                GetIps,
+                GetIpAreaByLocal,
+                () => applicationrestart,
+                LogWriteLine);
+            trackingUrlProcessor = new TrackingUrlProcessor(FormatUrlText, GridSumissector, FormatUrl_ipinyou, FormatUrl_mafengwo);
             StartMessageProcessor();
 
 
@@ -547,148 +553,6 @@ namespace MainClient
 
             }));
         }
-
-        #region 设备
-        public static SemaphoreSlim _mutex_dev = new SemaphoreSlim(1);
-
-        /// <summary>
-        /// 获取设备信息
-        /// </summary>
-        /// <param name="os"></param>
-        /// <returns></returns>
-        private JToken GetRandomDevByOS(OSType os)
-        {
-            if (os == OSType.IOS)
-            {
-                var jo = new JObject();
-                jo.Add("idfa", DevMan.GetIdfa());
-                jo.Add("imei", DevMan.GetImei());
-                jo.Add("mac", CommonHelper.GetRandomMacAddress());
-                return jo;
-            }
-            else if (os == OSType.ANDROID)
-            {
-
-                var jo = new JObject();
-                jo.Add("android_id", DevMan.GetAndroidId());
-                jo.Add("imei", DevMan.GetImei().ToLower());
-                jo.Add("mac", CommonHelper.GetRandomMacAddress().ToUpper());
-                return jo;
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// 获取设备信息
-        /// </summary>
-        /// <param name="os"></param>
-        /// <param name="count"></param>
-        /// <returns></returns>
-        /// 
-        private async Task<JToken> GetDevByOS(OSType os)
-        {
-            if (os == OSType.IOS)
-            {
-                if (ios_dev_queues.TryDequeue(out var result))
-                {
-                    return result;
-                }
-                var json = await GetDevs(os, 100);
-                if (string.IsNullOrWhiteSpace(json))
-                {
-                    return null;
-                }
-                try
-                {
-                    var jo = (JObject)JsonConvert.DeserializeObject(json);
-                    if (jo != null)
-                    {
-                        foreach (var item in jo["data"])
-                        {
-                            ios_dev_queues.Enqueue(item);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine(ex.Message);
-                }
-                if (ios_dev_queues.TryDequeue(out result))
-                {
-                    return result;
-                }
-                return null;
-            }
-            else if (os == OSType.ANDROID)
-            {
-                if (android_dev_queues.TryDequeue(out var result))
-                {
-                    return result;
-                }
-                var json = await GetDevs(os, 100);
-                if (string.IsNullOrWhiteSpace(json))
-                {
-                    return null;
-                }
-                try
-                {
-                    var jo = (JObject)JsonConvert.DeserializeObject(json);
-                    if (jo != null)
-                    {
-                        foreach (var item in jo["data"])
-                        {
-                            android_dev_queues.Enqueue(item);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine(ex.Message);
-                }
-
-                if (android_dev_queues.TryDequeue(out result))
-                {
-                    return result;
-                }
-                return null;
-            }
-            else
-            {
-                return null;
-            }
-        }
-        private async Task<string> GetDevs(OSType os, int count = 100)
-        {
-            try
-            {
-
-                await _mutex_dev.WaitAsync();
-                HttpResponseMessage response = await _client.GetAsync($"{setting.DevApiUrl}?type={(os == OSType.IOS ? "ios" : "android")}&count={count}");
-                response.EnsureSuccessStatusCode();
-                string responseBody = await response.Content.ReadAsStringAsync();
-                if (response.IsSuccessStatusCode)
-                {
-                    return responseBody;
-                }
-                else
-                {
-                    _logger.LogInformation($"GetDevs,{response.StatusCode}");
-                    return null;
-                }
-            }
-            catch (HttpRequestException ex)
-            {
-                _logger.LogInformation($"GetDevs,{ex.Message},{ex.StackTrace},{ex.InnerException.Message}");
-                return null;
-            }
-            finally
-            {
-                _mutex_dev.Release();
-            }
-        }
-
-        #endregion
-
 
         /// <summary>
         /// 秒针URL处理
@@ -2201,39 +2065,6 @@ namespace MainClient
             }
         }
 
-        private static IpAreaParseResult ParseIpArea(string areaJson)
-        {
-            if (string.IsNullOrWhiteSpace(areaJson))
-            {
-                return IpAreaParseResult.Fail();
-            }
-
-            try
-            {
-                var areaData = JObject.Parse(areaJson);
-                var data = areaData.SelectToken("data") as JObject;
-                var content = areaData.SelectToken("content") as JObject ?? data;
-                var result = new IpAreaParseResult
-                {
-                    Region = data?.Value<string>("region") ?? string.Empty,
-                    City = data?.Value<string>("city") ?? string.Empty,
-                    RealIp = content?.Value<string>("ip")
-                        ?? data?.Value<string>("ip")
-                        ?? areaData.Value<string>("ip")
-                        ?? string.Empty,
-                    Isp = content?.Value<string>("isp")
-                        ?? data?.Value<string>("isp")
-                        ?? areaData.Value<string>("isp")
-                        ?? string.Empty
-                };
-                result.Success = data != null || content != null || !string.IsNullOrWhiteSpace(result.RealIp);
-                return result;
-            }
-            catch (JsonException)
-            {
-                return IpAreaParseResult.Fail();
-            }
-        }
 
         #endregion
 
@@ -2364,268 +2195,6 @@ namespace MainClient
             }
         }
 
-        private sealed class IpContext
-        {
-            public string ProxyServer { get; set; } = string.Empty;
-            public string RealIp { get; set; } = string.Empty;
-            public string Ip { get; set; } = string.Empty;
-            public string TaskProvince { get; set; } = string.Empty;
-            public string TaskCity { get; set; } = string.Empty;
-            public string Isp { get; set; } = string.Empty;
-        }
-
-        private sealed class DeviceContext
-        {
-            public OSType Os { get; set; } = OSType.UNUNKNOWN;
-            public JToken Dev { get; set; }
-            public string UserAgent { get; set; } = string.Empty;
-        }
-
-        private sealed class ProxyParseResult
-        {
-            public bool Success { get; set; }
-            public IpContext Context { get; set; } = new IpContext();
-            public string ErrorMessage { get; set; } = string.Empty;
-
-            public static ProxyParseResult Ok(IpContext context)
-            {
-                return new ProxyParseResult { Success = true, Context = context };
-            }
-
-            public static ProxyParseResult Fail(string errorMessage)
-            {
-                return new ProxyParseResult { Success = false, ErrorMessage = errorMessage };
-            }
-        }
-
-        private sealed class IpAreaParseResult
-        {
-            public bool Success { get; set; }
-            public string Region { get; set; } = string.Empty;
-            public string City { get; set; } = string.Empty;
-            public string RealIp { get; set; } = string.Empty;
-            public string Isp { get; set; } = string.Empty;
-
-            public static IpAreaParseResult Fail()
-            {
-                return new IpAreaParseResult { Success = false };
-            }
-        }
-
-        private async Task<IpContext> ResolveIpContextAsync(JObject task, string title, CancellationToken token)
-        {
-            if (setting.NoProxy)
-            {
-                return new IpContext();
-            }
-
-            while (!token.IsCancellationRequested && !applicationrestart)
-            {
-                var proxyJson = await GetIps(task, 1);
-                if (IsInvalidProxyResponse(proxyJson))
-                {
-                    LogWriteLine($"IP异常:{proxyJson}");
-                    _logger.LogError($"任务[{task["id"]}]:,地区:{task["address"]},IP异常{proxyJson}");
-                    await Task.Delay(new Random().Next(50, 100), token);
-                    continue;
-                }
-
-                var proxyParseResult = ParseProxyResponse(proxyJson);
-                if (!proxyParseResult.Success)
-                {
-                    LogWriteLine(proxyParseResult.ErrorMessage);
-                    _logger.LogError($"任务[{task["id"]}]:,地区:{task["address"]},IP异常{proxyJson}");
-                    await Task.Delay(new Random().Next(50, 100), token);
-                    continue;
-                }
-                var ipContext = proxyParseResult.Context;
-
-                if (!await ValidateProxyAsync(task, ipContext, proxyJson, token))
-                {
-                    continue;
-                }
-
-                if (setting.IPAreaCheck && !await ValidateIpAreaAsync(task, ipContext, proxyJson, token))
-                {
-                    continue;
-                }
-
-                _logger.LogInformation($"任务[{task["id"]}]:{title},IP:{ipContext.RealIp},地区:{task["address"]}");
-                return ipContext;
-            }
-
-            return null;
-        }
-
-        private static bool IsInvalidProxyResponse(string proxyJson)
-        {
-            return string.IsNullOrWhiteSpace(proxyJson)
-                || !proxyJson.Contains(":")
-                || proxyJson.Contains("频繁")
-                || proxyJson.Contains("频率")
-                || proxyJson.Contains("太快")
-                || proxyJson.Contains("失败")
-                || proxyJson.Contains("错误")
-                || proxyJson.Contains("余额不足");
-        }
-
-        private ProxyParseResult ParseProxyResponse(string proxyJson)
-        {
-            var ipContext = new IpContext();
-
-            try
-            {
-                if (proxyJson.Contains("serialNo") && proxyJson.Contains("realIp"))
-                {
-                    var jo = JObject.Parse(proxyJson);
-                    var ipInfo = ResolveSerialProxyItem(jo);
-                    if (ipInfo == null)
-                    {
-                        return ProxyParseResult.Fail("IP异常1");
-                    }
-
-                    ipContext.ProxyServer = $"{ipInfo.Value<string>("ip")?.Trim()}:{ipInfo.Value<string>("port")?.Trim()}";
-                    ipContext.RealIp = ipInfo.Value<string>("realIp") ?? ipInfo.Value<string>("rip") ?? string.Empty;
-                }
-                else
-                {
-                    var ipData = JObject.Parse(proxyJson);
-                    ipContext.TaskProvince = ipData.Value<string>("province")?.Trim() ?? string.Empty;
-                    ipContext.TaskCity = ipData.Value<string>("city")?.Trim() ?? string.Empty;
-
-                    if (proxyJson.Contains("data") && proxyJson.Contains("success") && proxyJson.Contains("province") && proxyJson.Contains("city"))
-                    {
-                        var dataToken = ipData["data"];
-                        if (dataToken?.Type == JTokenType.String)
-                        {
-                            ipContext.ProxyServer = dataToken.Value<string>()?.Trim() ?? string.Empty;
-                        }
-                        else
-                        {
-                            var nestedData = dataToken as JObject ?? JObject.Parse(dataToken?.ToString() ?? "{}");
-                            var ipItem = nestedData["data"]?.FirstOrDefault() as JObject;
-                            if (ipItem == null)
-                            {
-                                return ProxyParseResult.Fail("IP异常1");
-                            }
-
-                            ipContext.ProxyServer = $"{ipItem.Value<string>("ip")?.Trim()}:{ipItem.Value<string>("port")?.Trim()}";
-                            ipContext.RealIp = ipItem.Value<string>("rip") ?? string.Empty;
-                        }
-                        await Task.Delay(new Random().Next(500, 1000), this.cts.Token);
-                    }
-                    else
-                    {
-                        ipContext.ProxyServer = ipData["data"]?.ToString().Trim() ?? string.Empty;
-                    }
-                }
-
-                if (!TrySetProxyIp(ipContext))
-                {
-                    return ProxyParseResult.Fail("IP异常");
-                }
-
-                return ProxyParseResult.Ok(ipContext);
-            }
-            catch (JsonException ex)
-            {
-                return ProxyParseResult.Fail("IP异常,JSON解析失败:" + ex.Message);
-            }
-            catch (Exception ex)
-            {
-                return ProxyParseResult.Fail("IP异常:" + ex.Message);
-            }
-        }
-
-        private static JObject ResolveSerialProxyItem(JObject proxyData)
-        {
-            var dataToken = proxyData["data"];
-            if (dataToken is JArray dataArray)
-            {
-                return dataArray.FirstOrDefault() as JObject;
-            }
-
-            var nestedData = dataToken as JObject ?? JObject.Parse(dataToken?.ToString() ?? "{}");
-            return nestedData["data"]?.FirstOrDefault() as JObject;
-        }
-
-        private static bool TrySetProxyIp(IpContext ipContext)
-        {
-            const string pattern = @"(?:(?:[0,1]?\d?\d|2[0-4]\d|25[0-5])\.){3}(?:[0,1]?\d?\d|2[0-4]\d|25[0-5]):\d{0,5}";
-            if (string.IsNullOrWhiteSpace(ipContext.ProxyServer) || !Regex.IsMatch(ipContext.ProxyServer, pattern))
-            {
-                return false;
-            }
-
-            ipContext.ProxyServer = ipContext.ProxyServer.Trim();
-            ipContext.Ip = ipContext.ProxyServer.Substring(0, ipContext.ProxyServer.IndexOf(":"));
-            return true;
-        }
-
-        private async Task<bool> ValidateProxyAsync(JObject task, IpContext ipContext, string proxyJson, CancellationToken token)
-        {
-            if (!setting.CheckIp && (!setting.RealIp || !string.IsNullOrWhiteSpace(ipContext.RealIp)))
-            {
-                return true;
-            }
-
-            var result = await _ipTester.TestAsync(ipContext.ProxyServer);
-            if (result.IsValid)
-            {
-                var ipJson = JObject.Parse(result.Data);
-                if (ipJson.ContainsKey("query"))
-                    ipContext.RealIp = ipJson["query"].Value<string>();
-                if (ipJson.ContainsKey("ip"))
-                    ipContext.RealIp = ipJson["ip"].Value<string>();
-                return true;
-            }
-
-            LogWriteLine("IP检测失败:" + proxyJson + $",{result.Data}");
-            await Task.Delay(new Random().Next(100, 200), token);
-            return false;
-        }
-
-        private async Task<bool> ValidateIpAreaAsync(JObject task, IpContext ipContext, string proxyJson, CancellationToken token)
-        {
-            var areaJson = GetIpAreaByLocal(ipContext.Ip, ipContext.ProxyServer);
-            _logger.LogInformation($"IP检测:{areaJson}");
-            if (string.IsNullOrWhiteSpace(areaJson))
-            {
-                LogWriteLine($"IP异常,代理无效:{proxyJson}");
-                await Task.Delay(new Random().Next(50, 100), token);
-                return false;
-            }
-
-            var areaParseResult = ParseIpArea(areaJson);
-            if (!areaParseResult.Success)
-            {
-                LogWriteLine($"IP异常,地区数据无效:{areaJson}");
-                await Task.Delay(new Random().Next(50, 100), token);
-                return false;
-            }
-
-            if (!string.IsNullOrWhiteSpace(ipContext.TaskProvince) && (string.IsNullOrWhiteSpace(areaParseResult.Region) || !areaParseResult.Region.Contains(ipContext.TaskProvince)))
-            {
-                LogWriteLine("IP异常,省份无效");
-                await Task.Delay(new Random().Next(50, 100), token);
-                return false;
-            }
-
-            if (!string.IsNullOrWhiteSpace(ipContext.TaskCity) && (string.IsNullOrWhiteSpace(areaParseResult.City) || !areaParseResult.City.Contains(ipContext.TaskCity)))
-            {
-                LogWriteLine("IP异常,城市无效");
-                await Task.Delay(new Random().Next(50, 100), token);
-                return false;
-            }
-
-            if (!string.IsNullOrWhiteSpace(areaParseResult.RealIp))
-            {
-                ipContext.RealIp = areaParseResult.RealIp;
-            }
-            ipContext.Isp = areaParseResult.Isp;
-            return true;
-        }
-
         private static Dictionary<int, int> BuildUaRates(JObject task)
         {
             var uaRates = new Dictionary<int, int>();
@@ -2677,85 +2246,6 @@ namespace MainClient
             return referer.Url;
         }
 
-        private async Task<DeviceContext> ResolveDeviceContextAsync(JObject task, Dictionary<int, int> uaRates, int abl)
-        {
-            var uaClients = task["client"].ToString().Split(new string[] { "|" }, StringSplitOptions.RemoveEmptyEntries);
-            var os = SelectOsForTask(uaRates, uaClients, abl);
-            var dev = await GetDevByOS(os);
-            if (dev == null)
-            {
-                LogWriteLine($"设备异常:os={os}");
-                return null;
-            }
-
-            var userAgent = dev["ua"]?.Value<string>();
-            if (string.IsNullOrWhiteSpace(userAgent))
-            {
-                LogWriteLine($"设备异常:缺少UA,os={os}");
-                return null;
-            }
-
-            return new DeviceContext
-            {
-                Os = os,
-                Dev = dev,
-                UserAgent = userAgent
-            };
-        }
-
-        private static OSType SelectOsForTask(Dictionary<int, int> uaRates, string[] uaClients, int abl)
-        {
-            if (abl != 0)
-            {
-                var ordered = uaRates.OrderBy(o => o.Value).ToList();
-                var uaIndex = ordered.FirstOrDefault().Key;
-                var uaValue = uaRates[uaIndex];
-
-                if (abl != 100)
-                {
-                    uaRates[uaIndex] = uaIndex == 1 ? uaValue + (100 - abl) : uaValue + abl;
-                }
-                else
-                {
-                    uaRates[uaIndex] = uaValue + 1;
-                }
-
-                return DevMan.GetOSByClient(uaIndex);
-            }
-
-            if (uaClients.Length > 1)
-            {
-                var randomIndex = new Random(Guid.NewGuid().GetHashCode()).Next(0, uaClients.Length);
-                return DevMan.GetOSByClient(Convert.ToInt32(uaClients[randomIndex]));
-            }
-
-            return DevMan.GetOSByClient(uaRates.FirstOrDefault().Key);
-        }
-
-        private string FormatTrackingUrl(string sourceUrl, string ip, string userAgent, JObject task, OSType os, JToken dev)
-        {
-            if (string.IsNullOrWhiteSpace(sourceUrl))
-            {
-                return string.Empty;
-            }
-
-            var domain = new Uri(sourceUrl).Host;
-            if (domain.Contains("gridsumdissector.com"))
-            {
-                return GridSumissector(sourceUrl, ip, userAgent, task, os, null, dev);
-            }
-            if (domain.Contains("ipinyou.com"))
-            {
-                return FormatUrl_ipinyou(sourceUrl, ip, userAgent, task, os, null, dev);
-            }
-            if (domain.Contains("mafengwo.cn"))
-            {
-                return FormatUrl_mafengwo(sourceUrl, ip, userAgent, task, os, null, dev);
-            }
-
-            return FormatUrlText(sourceUrl, ip, userAgent, task, os, null, dev);
-        }
-
         private JObject BuildLoadArgs(IpContext ipContext, OSType os)
         {
             var args = new JObject();
@@ -2775,7 +2265,6 @@ namespace MainClient
 
         private async Task ConsumerAsync(int consumerId, ChannelReader<JToken> reader, CancellationToken token)
         {
-
             int jobTimeRandomSeed = setting.ChildProcessResetIntervalMinutes * 60 + new Random(Guid.NewGuid().GetHashCode()).Next(-30, 30);
 
             bool jobFirst = true;
@@ -2788,147 +2277,136 @@ namespace MainClient
                 {
                     break;
                 }
-                if (reader.TryRead(out var jobVal))
+                if (!reader.TryRead(out var jobVal))
                 {
-                    var job = (JObject)jobVal;
-                    if (jobFirst)
+                    continue;
+                }
+                var job = (JObject)jobVal;
+                if (jobFirst)
+                {
+                    LogInfo($"创建进程:开始");
+                    jobFirst = false;
+                    jobTimeRandomSeed = setting.ChildProcessResetIntervalMinutes * 60 + new Random(Guid.NewGuid().GetHashCode()).Next(-30, 30);
+                    var clientId = Guid.NewGuid().ToString("N");
+                    var clientExecutablePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "CefClient", "CefClient.exe");
+                    process = CreateNewProcess(clientExecutablePath, this.selfWndHandle, clientId, consumerId);
+                    client = new ProcessItem() { ProcessId = process.Id, ClientWindowHandle = 0, ProcessPath = clientExecutablePath, time = System.DateTime.Now };
+                    this.cefProcessManager.Register(clientId, client);
+                    SpinWait.SpinUntil(() => this.cts.IsCancellationRequested || client.ClientWindowHandle != 0, 30 * 1000);
+                    try
                     {
-                        LogInfo($"创建进程:开始");
-                        jobFirst = false;
-                        jobTimeRandomSeed = setting.ChildProcessResetIntervalMinutes * 60 + new Random(Guid.NewGuid().GetHashCode()).Next(-30, 30);
-                        var clientId = Guid.NewGuid().ToString("N");
-                        var clientExecutablePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "CefClient", "CefClient.exe");
-                        process = CreateNewProcess(clientExecutablePath, this.selfWndHandle, clientId, consumerId);
-                        client = new ProcessItem() { ProcessId = process.Id, ClientWindowHandle = 0, ProcessPath = clientExecutablePath, time = System.DateTime.Now };
-                        this.cefProcessManager.Register(clientId, client);
-                        SpinWait.SpinUntil(() => this.cts.IsCancellationRequested || client.ClientWindowHandle != 0, 30 * 1000);
-                        try
-                        {
-                            LogInfo($"创建进程:完成{process.MainModule.FileName}");
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine(ex.Message);
-                        }
-                        await Task.Delay(new Random().Next(500, 1000), this.cts.Token);
+                        LogInfo($"创建进程:完成{process.MainModule.FileName}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine(ex.Message);
+                    }
+                    await Task.Delay(new Random().Next(500, 1000), this.cts.Token);
+                }
+
+                sync.Post((pi) =>
+                {
+                    label15.Text = $"活动进程:{pi}";
+                }, this.cefProcessManager != null ? this.cefProcessManager.Count : 0);
+
+                var task = job as JObject;
+                if (this.cts.IsCancellationRequested)
+                {
+                    return;
+                }
+                var taskId = Convert.ToInt32(task["id"].ToString());
+                var title = task["title"].ToString();
+                var ipContext = await ipProcessingService.ResolveIpContextAsync(task, title, this.cts.Token);
+                if (ipContext == null)
+                {
+                    return;
+                }
+
+                int abl = 100;
+                if (task.ContainsKey("abl") && int.TryParse(task["abl"].ToString(), out int ablr))
+                {
+                    abl = ablr;
+                }
+                var uaRates = BuildUaRates(task);
+                var refererRates = BuildRefererRates(task);
+
+                string url = task["url"].ToString();
+                string url2 = task["url2"].ToString();
+                int uvCount = Convert.ToInt32(task["uv"].ToString());
+                bool huichuan = false;
+                if (task["huichuan"] != null && task["huichuan"].ToString().Equals("on"))
+                {
+                    huichuan = true;
+                }
+
+                for (int uvIndex = 1; uvIndex <= uvCount; uvIndex++)
+                {
+                    if (this.cts.IsCancellationRequested || applicationrestart)
+                    {
+                        break;
+                    }
+                    if (process.HasExited)
+                    {
+                        jobFirst = true;
+                        break;
                     }
 
+                    var referer = SelectReferer(refererRates, uvCount);
+                    var deviceContext = await deviceInfoManager.ResolveDeviceContextAsync(task, uaRates, abl);
+                    if (deviceContext == null)
+                    {
+                        await Task.Delay(new Random().Next(50, 100), this.cts.Token);
+                        continue;
+                    }
+
+                    var uv_url = trackingUrlProcessor.Format(url, ipContext.Ip, deviceContext.UserAgent, task, deviceContext.Os, deviceContext.Dev);
+                    var uv_url2 = trackingUrlProcessor.Format(url2, ipContext.Ip, deviceContext.UserAgent, task, deviceContext.Os, deviceContext.Dev);
+                    var cacheIndex = $"s{uvIndex}";
+                    var args = BuildLoadArgs(ipContext, deviceContext.Os);
+
+                    var msgret = await SendLoadUrlMessage(client, uv_url, uv_url2, args, deviceContext.UserAgent, referer, task, deviceContext.Dev, cacheIndex);
+                    Interlocked.Increment(ref TotalUVCount);
+                    LogWriteLine($"提交任务[{task["id"]}]:{task["title"]},process=[{consumerId}],os={deviceContext.Os},osv={deviceContext.Dev["osv"]},cache={cacheIndex},{ipContext.ProxyServer},{uvIndex}/{uvCount}");
                     sync.Post((pi) =>
                     {
-                        label15.Text = $"活动进程:{pi}";
-                    }, this.cefProcessManager != null ? this.cefProcessManager.Count : 0);
+                        label5.Text = $"提交数量:{pi}";
+                        label7.Text = $"运行时间:{(int)sw.Elapsed.TotalMinutes}分钟";
+                    }, this.TotalUVCount);
 
-                    var task = job as JObject;
-                    if (this.cts.IsCancellationRequested)
+                    if (uvCount > 1)
                     {
-                        return;
+                        SpinWait.SpinUntil(() => false, setting.UVInterval);
                     }
-                    var taskId = Convert.ToInt32(task["id"].ToString());
-                    var title = task["title"].ToString();
-                    var ipContext = await ResolveIpContextAsync(task, title, this.cts.Token);
-                    if (ipContext == null)
+                }
+
+                #region 清理代码
+                if (!jobFirst)
+                {
+                    if (process != null && !process.HasExited && setting.ChildProcessResetIntervalMinutes > 0 && ((TimeSpan)(System.DateTime.Now - process.StartTime)).TotalSeconds > jobTimeRandomSeed)
                     {
-                        return;
-                    }
-
-                    for (int uvIndex = 1; uvIndex <= uvCount; uvIndex++)
-                    {
-                        if (this.cts.IsCancellationRequested || applicationrestart)
+                        jobFirst = true;
+                        if (process != null && !process.HasExited)
                         {
-                            break;
-                        }
-                        if (process.HasExited)
-                        {
-                            jobFirst = true;
-                            break;
-                        }
-
-                    int abl = 100;
-                    if (task.ContainsKey("abl") && int.TryParse(task["abl"].ToString(), out int ablr))
-                    {
-                        abl = ablr;
-                    }
-                    var uaRates = BuildUaRates(task);
-                    var refererRates = BuildRefererRates(task);
-
-                    string url = task["url"].ToString();
-                    string url2 = task["url2"].ToString();
-                    int uvCount = Convert.ToInt32(task["uv"].ToString());
-                    bool huichuan = false;
-                    if (task["huichuan"] != null && task["huichuan"].ToString().Equals("on"))
-                    {
-                        huichuan = true;
-                    }
-
-                    for (int uvIndex = 1; uvIndex <= uvCount; uvIndex++)
-                    {
-                        if (this.cts.IsCancellationRequested || applicationrestart)
-                        {
-                            break;
-                        }
-                        if (process.HasExited)
-                        {
-                            jobFirst = true;
-                            break;
-                        }
-
-                        var referer = SelectReferer(refererRates, uvCount);
-                        var deviceContext = await ResolveDeviceContextAsync(task, uaRates, abl);
-                        if (deviceContext == null)
-                        {
-                            await Task.Delay(new Random().Next(50, 100), this.cts.Token);
-                            continue;
-                        }
-
-                        var uv_url = FormatTrackingUrl(url, ipContext.Ip, deviceContext.UserAgent, task, deviceContext.Os, deviceContext.Dev);
-                        var uv_url2 = FormatTrackingUrl(url2, ipContext.Ip, deviceContext.UserAgent, task, deviceContext.Os, deviceContext.Dev);
-                        var cacheIndex = $"s{uvIndex}";
-                        var args = BuildLoadArgs(ipContext, deviceContext.Os);
-
-                        var msgret = await SendLoadUrlMessage(client, uv_url, uv_url2, args, deviceContext.UserAgent, referer, task, deviceContext.Dev, cacheIndex);
-                        Interlocked.Increment(ref TotalUVCount);
-                        LogWriteLine($"提交任务[{task["id"]}]:{task["title"]},process=[{consumerId}],os={deviceContext.Os},osv={deviceContext.Dev["osv"]},cache={cacheIndex},{ipContext.ProxyServer},{uvIndex}/{uvCount}");
-                        sync.Post((pi) =>
-                        {
-                            label5.Text = $"提交数量:{pi}";
-                            label7.Text = $"运行时间:{(int)sw.Elapsed.TotalMinutes}分钟";
-                        }, this.TotalUVCount);
-
-                        if (uvCount > 1)
-                        {
-                            SpinWait.SpinUntil(() => false, setting.UVInterval);
-                        }
-                    }
-
-                    #region 清理代码
-                    if (!jobFirst)
-                    {
-                        if (process != null && !process.HasExited && setting.ChildProcessResetIntervalMinutes > 0 && ((TimeSpan)(System.DateTime.Now - process.StartTime)).TotalSeconds > jobTimeRandomSeed)
-                        {
-                            jobFirst = true;
+                            LogInfo($"清理进程:开始{process.MainModule.FileName}");
+                            await Task.Delay(1000, this.cts.Token);
                             if (process != null && !process.HasExited)
                             {
-                                LogInfo($"清理进程:开始{process.MainModule.FileName}");
-                                await Task.Delay(1000, this.cts.Token);
-                                if (process != null && !process.HasExited)
+                                try
                                 {
-                                    try
-                                    {
-                                        process.Kill();
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        LogWriteLine(ex.Message);
-                                        CommonHelper.KillProcExec(process.Id);
-                                    }
+                                    process.Kill();
+                                }
+                                catch (Exception ex)
+                                {
+                                    LogWriteLine(ex.Message);
+                                    CommonHelper.KillProcExec(process.Id);
                                 }
                             }
                         }
                     }
-                    #endregion
-
-                    SpinWait.SpinUntil(() => this.cts.IsCancellationRequested, setting.UVInterval);
                 }
+                #endregion
+
+                SpinWait.SpinUntil(() => this.cts.IsCancellationRequested, setting.UVInterval);
             }
 
             if (process != null && !process.HasExited)
@@ -3049,58 +2527,53 @@ namespace MainClient
                 this.buttonStart.Enabled = false;
                 Task.Run(async () =>
                 {
-                    await Task.Delay(5 * 1000);
-                    sync.Post((p) =>
+                    var jo = JObject.Parse(proxyJson);
+                    var ipInfo = ResolveSerialProxyItem(jo);
+                    if (ipInfo == null)
                     {
-                        this.cts.Cancel();
-                        sw.Stop();
-                        this.TopMost = false;
-                    }, null);
-                    if (this.taskDispatchManager != null)
-                    {
-                        await this.taskDispatchManager.StopAsync(8 * 1000);
+                        return ProxyParseResult.Fail("IP异常1");
                     }
-                    this.cefProcessManager?.KillAll();
-                    CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
-                    #region 删除物理文件
-                    /*
-                    for (int parallelIndex = 1; parallelIndex <= setting.MaximumParallel; parallelIndex++)
-                    {
-                        try
-                        {
-                            Directory.Delete(System.IO.Path.Combine(System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase, "chrome", "User Data", parallelIndex.ToString()), recursive: true);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine(ex.Message);
-                        }
-                        try
-                        {
-                            CommonHelper.DeleteCookieFile(System.IO.Path.Combine(System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase, "chrome", "User Data", parallelIndex.ToString()));
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine(ex.Message);
-                        }
-                    }
-                    */
-                    #endregion
-                    this.BeginInvoke(new MethodInvoker(() =>
-                    {
-                        this.TotalUVCount = 0;
-                        buttonStart.Text = "开始";
-                        buttonStart.ForeColor = Color.Black;
-                        buttonStart.Enabled = true;
-                        this.buttonStart.Enabled = true;
-                    }));
-                });
-                return;
-            }
-            applicationrestart = false;
-            applicationstop = false;
-            UpdateAppSetting();
 
-            this.taskDispatchManager = new TaskDispatchManager(GetTaskQueueCapacity());
+                    ipContext.ProxyServer = $"{ipInfo.Value<string>("ip")?.Trim()}:{ipInfo.Value<string>("port")?.Trim()}";
+                    ipContext.RealIp = ipInfo.Value<string>("realIp") ?? ipInfo.Value<string>("rip") ?? string.Empty;
+                }
+                else
+                {
+                    var ipData = JObject.Parse(proxyJson);
+                    ipContext.TaskProvince = ipData.Value<string>("province")?.Trim() ?? string.Empty;
+                    ipContext.TaskCity = ipData.Value<string>("city")?.Trim() ?? string.Empty;
+
+                    if (proxyJson.Contains("data") && proxyJson.Contains("success") && proxyJson.Contains("province") && proxyJson.Contains("city"))
+                    {
+                        var dataToken = ipData["data"];
+                        if (dataToken?.Type == JTokenType.String)
+                        {
+                            ipContext.ProxyServer = dataToken.Value<string>()?.Trim() ?? string.Empty;
+                        }
+                        else
+                        {
+                            var nestedData = dataToken as JObject ?? JObject.Parse(dataToken?.ToString() ?? "{}");
+                            var ipItem = nestedData["data"]?.FirstOrDefault() as JObject;
+                            if (ipItem == null)
+                            {
+                                return ProxyParseResult.Fail("IP异常1");
+                            }
+
+                            ipContext.ProxyServer = $"{ipItem.Value<string>("ip")?.Trim()}:{ipItem.Value<string>("port")?.Trim()}";
+                            ipContext.RealIp = ipItem.Value<string>("rip") ?? string.Empty;
+                        }
+                        await Task.Delay(new Random().Next(500, 1000), this.cts.Token);
+                    }
+                    else
+                    {
+                        ipContext.ProxyServer = ipData["data"]?.ToString().Trim() ?? string.Empty;
+                    }
+                }
+
+                if (!TrySetProxyIp(ipContext))
+                {
+                    return ProxyParseResult.Fail("IP异常");
+                }
 
             this.selfWndHandle = this.Handle;
             this.processOfList = new System.Collections.Concurrent.ConcurrentDictionary<string, ProcessItem>();
@@ -3113,16 +2586,11 @@ namespace MainClient
             this.cts = new CancellationTokenSource();
             this.cts.Token.Register(() =>
             {
-                buttonStart.Enabled = false;
-                buttonStart.Text = "停止中...";
-                buttonStart.ForeColor = Color.Black;
-                this.buttonStart.Enabled = false;
-            });
-
-            #region 获取任务及执行任务
-            foreach (var pendingTask in this.pendingTasks)
+                return ProxyParseResult.Fail("IP异常,JSON解析失败:" + ex.Message);
+            }
+            catch (Exception ex)
             {
-                this.taskDispatchManager.Writer.TryWrite(pendingTask);
+                return ProxyParseResult.Fail("IP异常:" + ex.Message);
             }
             this.pendingTasks.Clear();
             this.taskDispatchManager.Start(setting.MaximumParallel, ProducerAsync, ConsumerAsync, this.cts.Token);
