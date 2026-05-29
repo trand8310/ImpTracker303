@@ -2536,6 +2536,9 @@ namespace MainClient
                             goto redo_getip;
                         }
 
+                            }
+                            realIp = areaData["content"]["ip"].ToString();
+                            isp = areaData["content"]["isp"].ToString();
 
                         #region IP地区检测
                         string isp = string.Empty;
@@ -2577,12 +2580,21 @@ namespace MainClient
 
 
 
+                    }
 
 
 
 
                     }
 
+                    string url = task["url"].ToString();
+                    string url2 = task["url2"].ToString();
+                    int uvCount = Convert.ToInt32(task["uv"].ToString());
+                    bool huichuan = false;
+                    if (task["huichuan"] != null && task["huichuan"].ToString().Equals("on"))
+                    {
+                        huichuan = true;
+                    }
 
 
 
