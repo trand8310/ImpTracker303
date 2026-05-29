@@ -2485,6 +2485,7 @@ namespace MainClient
                             ipContext.ProxyServer = $"{ipItem.Value<string>("ip")?.Trim()}:{ipItem.Value<string>("port")?.Trim()}";
                             ipContext.RealIp = ipItem.Value<string>("rip") ?? string.Empty;
                         }
+                        await Task.Delay(new Random().Next(500, 1000), this.cts.Token);
                     }
                     else
                     {
@@ -2805,6 +2806,9 @@ namespace MainClient
                         return;
                     }
 
+                            }
+                        }
+                        #endregion
 
                     int abl = 100;
                     if (task.ContainsKey("abl") && int.TryParse(task["abl"].ToString(), out int ablr))
@@ -3029,6 +3033,22 @@ namespace MainClient
                     /*
                     for (int parallelIndex = 1; parallelIndex <= setting.MaximumParallel; parallelIndex++)
                     {
+                        await this.taskDispatchManager.StopAsync(8 * 1000);
+                    }
+                    this.cefProcessManager?.KillAll();
+                    CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
+                    #region 删除物理文件
+                    /*
+                    for (int parallelIndex = 1; parallelIndex <= setting.MaximumParallel; parallelIndex++)
+                    {
+                        try
+                        {
+                            Directory.Delete(System.IO.Path.Combine(System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase, "chrome", "User Data", parallelIndex.ToString()), recursive: true);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine(ex.Message);
+                        }
                         try
                         {
                             Directory.Delete(System.IO.Path.Combine(System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase, "chrome", "User Data", parallelIndex.ToString()), recursive: true);
