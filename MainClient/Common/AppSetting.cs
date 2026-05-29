@@ -44,7 +44,7 @@ namespace MainClient.Common
 
         public int UVInterval { get; set; }
 
-        public bool ShowWeb { get; set; }
+        public bool IsHiddenMode { get; set; }
         public bool NoProxy { get; set; }
 
         /// <summary>
@@ -57,11 +57,11 @@ namespace MainClient.Common
         /// <summary>
         /// 主进程重置时间
         /// </summary>
-        public int MainResetInterval { get; set; }
+        public int MainProcessResetIntervalMinutes { get; set; }
         /// <summary>
         /// 子进程重置时间
         /// </summary>
-        public int SubResetInterval { get; set; }
+        public int ChildProcessResetIntervalMinutes { get; set; }
 
 
         /// <summary>

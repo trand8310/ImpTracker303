@@ -1,20 +1,12 @@
-﻿using MainClient.Common;
-using System;
-using System.Collections.Generic;
+﻿
 using System.Diagnostics;
-using System.Drawing;
 using System.Drawing.Imaging;
-using System.IO;
-using System.Linq;
 using System.Net;
-using System.Net.Http;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
 
-namespace SamMate.Common
+namespace MainClient.Common
 {
     public class CommonHelper
     {
@@ -602,30 +594,30 @@ namespace SamMate.Common
 
         public static void CreateShortCut(string shortcutName)
         {
-            var shortcutPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup), $"{shortcutName}{string.Join("", AppSetting.AppVertion.Split('.').Skip(1).Take(2))}.lnk");
-            if (System.IO.File.Exists(shortcutPath))
-            {
-                System.IO.File.Delete(shortcutPath);
-            }
-            byte[] bytes = null;
-            using (System.Security.Principal.WindowsImpersonationContext ctx = System.Security.Principal.WindowsIdentity.Impersonate(IntPtr.Zero))
-            {
-                var path = Path.GetTempPath();
-                string temp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".lnk");
-                try
-                {
-                    IWshRuntimeLibrary.WshShell shell = new IWshRuntimeLibrary.WshShell();
-                    IWshRuntimeLibrary.IWshShortcut shortcut = (IWshRuntimeLibrary.IWshShortcut)shell.CreateShortcut(temp);
-                    shortcut.TargetPath = System.Windows.Forms.Application.ExecutablePath;
-                    shortcut.Save();
-                    bytes = System.IO.File.ReadAllBytes(temp);
-                }
-                finally
-                {
-                    if (System.IO.File.Exists(temp)) System.IO.File.Delete(temp);
-                }
-            }
-            System.IO.File.WriteAllBytes(shortcutPath, bytes);
+            //var shortcutPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup), $"{shortcutName}{string.Join("", AppSetting.AppVertion.Split('.').Skip(1).Take(2))}.lnk");
+            //if (System.IO.File.Exists(shortcutPath))
+            //{
+            //    System.IO.File.Delete(shortcutPath);
+            //}
+            //byte[] bytes = null;
+            //using (System.Security.Principal.WindowsImpersonationContext ctx = System.Security.Principal.WindowsIdentity.Impersonate(IntPtr.Zero))
+            //{
+            //    var path = Path.GetTempPath();
+            //    string temp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".lnk");
+            //    try
+            //    {
+            //        IWshRuntimeLibrary.WshShell shell = new IWshRuntimeLibrary.WshShell();
+            //        IWshRuntimeLibrary.IWshShortcut shortcut = (IWshRuntimeLibrary.IWshShortcut)shell.CreateShortcut(temp);
+            //        shortcut.TargetPath = System.Windows.Forms.Application.ExecutablePath;
+            //        shortcut.Save();
+            //        bytes = System.IO.File.ReadAllBytes(temp);
+            //    }
+            //    finally
+            //    {
+            //        if (System.IO.File.Exists(temp)) System.IO.File.Delete(temp);
+            //    }
+            //}
+            //System.IO.File.WriteAllBytes(shortcutPath, bytes);
         }
 
 
@@ -633,29 +625,29 @@ namespace SamMate.Common
 
         public static void CreateShortcut(string shortcutName)
         {
-            IWshRuntimeLibrary.WshShell wsh = new IWshRuntimeLibrary.WshShell();
-            var shortcutPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), $"{shortcutName}{string.Join("", AppSetting.AppVertion.Split('.').Skip(1).Take(2))}.lnk");
-            if (System.IO.File.Exists(shortcutPath))
-            {
-                System.IO.File.Delete(shortcutPath);
-            }
-            try
-            {
-                IWshRuntimeLibrary.IWshShortcut shortcut = wsh.CreateShortcut(shortcutPath) as IWshRuntimeLibrary.IWshShortcut;
-                shortcut.Arguments = "restart";
-                shortcut.TargetPath = System.Windows.Forms.Application.ExecutablePath;
-                shortcut.WindowStyle = 1;
-                shortcut.Description = shortcutName;
-                shortcut.WorkingDirectory = System.AppDomain.CurrentDomain.BaseDirectory;
-                shortcut.IconLocation = System.Windows.Forms.Application.ExecutablePath;
-                shortcut.Save();
+            //IWshRuntimeLibrary.WshShell wsh = new IWshRuntimeLibrary.WshShell();
+            //var shortcutPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), $"{shortcutName}{string.Join("", AppSetting.AppVertion.Split('.').Skip(1).Take(2))}.lnk");
+            //if (System.IO.File.Exists(shortcutPath))
+            //{
+            //    System.IO.File.Delete(shortcutPath);
+            //}
+            //try
+            //{
+            //    IWshRuntimeLibrary.IWshShortcut shortcut = wsh.CreateShortcut(shortcutPath) as IWshRuntimeLibrary.IWshShortcut;
+            //    shortcut.Arguments = "restart";
+            //    shortcut.TargetPath = System.Windows.Forms.Application.ExecutablePath;
+            //    shortcut.WindowStyle = 1;
+            //    shortcut.Description = shortcutName;
+            //    shortcut.WorkingDirectory = System.AppDomain.CurrentDomain.BaseDirectory;
+            //    shortcut.IconLocation = System.Windows.Forms.Application.ExecutablePath;
+            //    shortcut.Save();
 
-            }
-            catch (Exception ex)
-            {
+            //}
+            //catch (Exception ex)
+            //{
 
-                MessageBox.Show(ex.Message);
-            }
+            //    MessageBox.Show(ex.Message);
+            //}
 
         }
     }

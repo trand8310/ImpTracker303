@@ -1,64 +1,31 @@
-﻿using MainClient.Common;
+﻿using AdxImp.Win32;
+using MainClient.Common;
 using MainClient.Models;
-using MainClient.Properties;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using SamMate.Common;
-using SamMate.Win32;
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Data;
 using System.Diagnostics;
-using System.Drawing;
-using System.IO;
-using System.Linq;
+using System.IO.Pipelines;
 using System.Net;
-using System.Net.Http;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Channels;
-using System.Threading.Tasks;
-using System.Threading.Tasks.Schedulers;
 using System.Web;
-using System.Windows.Forms;
 
 namespace MainClient
 {
     public partial class MainForm : Form
     {
-        #region WIN32
-        const int WM_COPYDATA = 0x004A;
-        [DllImport("user32.dll")]
-        public static extern IntPtr FindWindowEx(IntPtr parentWindow, IntPtr previousChildWindow, string windowClass, string windowTitle);
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetWindowThreadProcessId(IntPtr window, out int process);
-        private IntPtr[] GetProcessWindows(int process, string title)
-        {
-            IntPtr[] apRet = (new IntPtr[256]);
-            int iCount = 0;
-            IntPtr pLast = IntPtr.Zero;
-            do
-            {
-                pLast = FindWindowEx(IntPtr.Zero, pLast, null, title);
-                int iProcess_;
-                GetWindowThreadProcessId(pLast, out iProcess_);
-                if (iProcess_ == process) apRet[iCount++] = pLast;
-            } while (pLast != IntPtr.Zero);
-            System.Array.Resize(ref apRet, iCount);
-            return apRet;
-        }
 
-        #endregion
 
+        private readonly ILogger _logger;
         private AppSetting setting = null;
         private CancellationTokenSource cts = null;
         private SynchronizationContext sync;
-        private static readonly log4net.ILog logger = log4net.LogManager.GetLogger("Logging");
         private ConcurrentDictionary<string, ProcessItem> processOfList;
 
         /// <summary>
@@ -169,38 +136,6 @@ namespace MainClient
         #region 更新
 
 
-        public void SendSms(string name, string phone)
-        {
-            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(phone))
-            {
-                return;
-            }
-
-            try
-            {
-                HttpHelper http = new HttpHelper();
-                var item = new HttpItem()
-                {
-                    URL = AppSetting.SmsApiUrl,
-                    Method = "POST",
-                    ContentType = "application/x-www-form-urlencoded",
-                    Postdata = $"name={System.Web.HttpUtility.UrlEncode(name)}&phone={phone}",
-                    Timeout = 10000,
-                    Allowautoredirect = true,
-                };
-                var hr = http.GetHtml(item);
-                if (hr.StatusCode == System.Net.HttpStatusCode.OK)
-                {
-
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.Message);
-
-            }
-
-        }
 
 
         #endregion
@@ -209,14 +144,14 @@ namespace MainClient
         private void ResolveMessage(string value)
         {
             var message = (JObject)JsonConvert.DeserializeObject(value);
-            if (message["Msg"].ToString().Equals("REG"))
+            if (message["Msg"].ToString().Equals("CLIENT_STARTED"))
             {
-                var uuid = message["uuid"].ToString();
-                var windowHandle = Convert.ToInt32(message["WindowHandle"].ToString());
-                this.cefProcessManager?.UpdateWindowHandle(uuid, windowHandle);
+                var clientId = message["ClientId"].ToString();
+                var clientHandle = Convert.ToInt32(message["ClientHandle"].ToString());
+                this.cefProcessManager?.UpdateWindowHandle(clientId, clientHandle);
             }
         }
-        private static int SendLoadUrlMessage(ProcessItem clientProcess, string url, string url2, JObject _args, string userAgent, string referer, JObject param, JToken devInfo, string cacheIndex)
+        private nint SendLoadUrlMessage(ProcessItem clientProcess, string url, string url2, JObject _args, string userAgent, string referer, JObject param, JToken devInfo, string cacheIndex)
         {
             var message = JsonConvert.SerializeObject(JObject.FromObject(new
             {
@@ -236,7 +171,24 @@ namespace MainClient
             cds.dwData = (IntPtr)100;
             cds.lpData = message;
             cds.cbData = sarr.Length + 1;
-            return NativeMethod.SendMessage(clientProcess.ClientWindowHandle, WM_COPYDATA, 0, ref cds);
+            //return NativeMethod.SendMessage(clientProcess.ClientWindowHandle, WinTypes.WM_COPYDATA, 0, ref cds);
+            IntPtr sendResult;
+            var ret = NativeMethod.SendMessageTimeout(
+                clientProcess.ClientWindowHandle,
+                WinTypes.WM_COPYDATA,
+                this.Handle,
+                ref cds,
+                WinTypes.SMTO_ABORTIFHUNG,
+                3000,
+                out sendResult
+            );
+            if (ret == IntPtr.Zero)
+            {
+                int error = Marshal.GetLastWin32Error();
+                //LogWriteLine($"注册消息发送失败或超时：ClientId={clientId}, Error={error}");
+            }
+            //LogWriteLine($"注册消息发送成功：ClientId={clientId}, ProcessId={processId}");
+            return ret;
 
         }
         private static void SendShowFormMessage(int clientWindowHandle, bool show = true)
@@ -251,13 +203,13 @@ namespace MainClient
             cds.dwData = (IntPtr)100;
             cds.lpData = message;
             cds.cbData = sarr.Length + 1;
-            NativeMethod.SendMessage(clientWindowHandle, WM_COPYDATA, 0, ref cds);
+            NativeMethod.SendMessage(clientWindowHandle, WinTypes.WM_COPYDATA, 0, ref cds);
         }
         protected override void DefWndProc(ref System.Windows.Forms.Message m)
         {
             switch (m.Msg)
             {
-                case WM_COPYDATA:
+                case WinTypes.WM_COPYDATA:
                     COPYDATASTRUCT data = new COPYDATASTRUCT();
                     Type myType = data.GetType();
                     data = (COPYDATASTRUCT)m.GetLParam(myType);
@@ -273,21 +225,7 @@ namespace MainClient
         }
         #endregion
 
-        private static async Task<bool> PingIP(string proxy_server)
-        {
-            Ping pingSender = new Ping();
-            PingOptions options = new PingOptions();
-            options.DontFragment = true;
-            string data = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-            byte[] buffer = Encoding.ASCII.GetBytes(data);
-            int timeout = 1000;
-            PingReply reply = await pingSender.SendPingAsync(proxy_server, timeout, buffer, options);
-            if (reply.Status == IPStatus.Success)
-            {
-                return true;
-            }
-            return false;
-        }
+
 
 
         public MainForm(IHttpClientFactory httpClientFactory)
@@ -627,13 +565,13 @@ namespace MainClient
                 }
                 else
                 {
-                    logger.Info($"GetDevs,{response.StatusCode}");
+                    _logger.LogInformation($"GetDevs,{response.StatusCode}");
                     return null;
                 }
             }
             catch (HttpRequestException ex)
             {
-                logger.Info($"GetDevs,{ex.Message},{ex.StackTrace},{ex.InnerException.Message}");
+                _logger.LogInformation($"GetDevs,{ex.Message},{ex.StackTrace},{ex.InnerException.Message}");
                 return null;
             }
             finally
@@ -1927,7 +1865,7 @@ namespace MainClient
                 if (response.IsSuccessStatusCode)
                 {
                     string responseBody = await response.Content.ReadAsStringAsync();
-                    logger.Info($"获取IP[{job["id"]}]:{job["address"]},{url},{responseBody}");
+                    _logger.LogInformation($"获取IP[{job["id"]}]:{job["address"]},{url},{responseBody}");
 
                     if (url.Contains("113.96.182.17"))
                     {
@@ -1992,19 +1930,19 @@ namespace MainClient
                 }
                 else
                 {
-                    logger.Info($"任务[{job["id"]}]:{job["address"]},{url},{response.StatusCode}");
+                    _logger.LogInformation($"任务[{job["id"]}]:{job["address"]},{url},{response.StatusCode}");
                     return null;
                 }
             }
             catch (HttpRequestException ex)
             {
-                logger.Error($"任务[{job["id"]}]:{job["address"]},{url},{ex.Message},{ex.StackTrace},{ex.InnerException?.Message}");
+                _logger.LogError($"任务[{job["id"]}]:{job["address"]},{url},{ex.Message},{ex.StackTrace},{ex.InnerException?.Message}");
                 LogWriteLine(ex.Message);
                 return null;
             }
             catch (Exception ex)
             {
-                logger.Error($"任务[{job["id"]}]:{job["address"]},{url},{ex.Message},{ex.StackTrace},{ex.InnerException?.Message}");
+                _logger.LogError($"任务[{job["id"]}]:{job["address"]},{url},{ex.Message},{ex.StackTrace},{ex.InnerException?.Message}");
                 LogWriteLine(ex.Message);
                 return null;
             }
@@ -2144,7 +2082,7 @@ namespace MainClient
                 var hr = http.GetHtml(item);
                 if (hr.StatusCode == HttpStatusCode.OK)
                 {
-                    logger.Info($"GetIpAreaByLocal:{ip} => {hr.Html}");
+                    //_logger.LogInformation($"GetIpAreaByLocal:{ip} => {hr.Html}");
                     return hr.Html;
                 }
                 return null;
@@ -2169,18 +2107,17 @@ namespace MainClient
             textBox_DevApiUrl.Text = setting.DevApiUrl;
             textBox_AllIpApiUrl.Text = setting.AllIpApiUrl;
             textBox_TaskApiUrl.Text = setting.TaskApiUrl;
-            textBox_UpdateApiUrl.Text = setting.UpdateApiUrl;
             numericUpDown_GetTaskInterval.Value = setting.GetTaskInterval;
             numericUpDown_MaximumParallel.Value = setting.MaximumParallel;
             numericUpDown_MaximumLimitedConcurrency.Value = setting.MaximumLimitedConcurrency;
             textBox_TaskIdentify.Text = setting.TaskIdentify;
             numericUpDown_UVInterval.Value = setting.UVInterval;
-            checkBox_ShowWeb.Checked = setting.ShowWeb;
-            checkBox_NoProxy.Checked = setting.NoProxy;
+            checkBox_IsHiddenMode.Checked = setting.IsHiddenMode;
+            checkBox_IsProxyMode.Checked = setting.NoProxy;
             numericUpDown_Multiple.Value = setting.Multiple;
             checkBox_RealIp.Checked = setting.RealIp;
-            numericUpDown_MainResetInterval.Value = setting.MainResetInterval;
-            numericUpDown_SubResetInterval.Value = setting.SubResetInterval;
+            numericUpDown_MainProcessResetIntervalMinutes.Value = setting.MainProcessResetIntervalMinutes;
+            numericUpDown_ChildProcessResetIntervalMinutes.Value = setting.ChildProcessResetIntervalMinutes;
             checkBox_SendSms.Checked = setting.SendSms;
             textBox_SmsName.Text = setting.SmsName;
             textBox_SmsPhone.Text = setting.SmsPhone;
@@ -2198,18 +2135,17 @@ namespace MainClient
             setting.DevApiUrl = textBox_DevApiUrl.Text;
             setting.AllIpApiUrl = textBox_AllIpApiUrl.Text;
             setting.TaskApiUrl = textBox_TaskApiUrl.Text;
-            setting.UpdateApiUrl = textBox_UpdateApiUrl.Text;
             setting.GetTaskInterval = (int)numericUpDown_GetTaskInterval.Value;
             setting.MaximumParallel = (int)numericUpDown_MaximumParallel.Value;
             setting.TaskIdentify = textBox_TaskIdentify.Text;
             setting.MaximumLimitedConcurrency = (int)numericUpDown_MaximumLimitedConcurrency.Value;
             setting.UVInterval = (int)numericUpDown_UVInterval.Value;
-            setting.ShowWeb = checkBox_ShowWeb.Checked;
-            setting.NoProxy = checkBox_NoProxy.Checked;
+            setting.IsHiddenMode = checkBox_IsHiddenMode.Checked;
+            setting.NoProxy = checkBox_IsProxyMode.Checked;
             setting.Multiple = (int)numericUpDown_Multiple.Value;
             setting.RealIp = checkBox_RealIp.Checked;
-            setting.MainResetInterval = (int)numericUpDown_MainResetInterval.Value;
-            setting.SubResetInterval = (int)numericUpDown_SubResetInterval.Value;
+            setting.MainProcessResetIntervalMinutes = (int)numericUpDown_MainProcessResetIntervalMinutes.Value;
+            setting.ChildProcessResetIntervalMinutes = (int)numericUpDown_ChildProcessResetIntervalMinutes.Value;
             setting.SendSms = checkBox_SendSms.Checked;
             setting.SmsName = textBox_SmsName.Text;
             setting.SmsPhone = textBox_SmsPhone.Text;
@@ -2226,13 +2162,13 @@ namespace MainClient
         }
         #endregion
 
-        private Process CreateNewProcess(string filePath, int hWnd, string uuid, int consumerId)
+        private Process CreateNewProcess(string filePath, int hWnd, string clientId, int consumerId)
         {
             try
             {
                 ProcessStartInfo processInfo = new ProcessStartInfo();
                 processInfo.FileName = filePath;
-                processInfo.Arguments = $"hwnd={hWnd} showform={setting.ShowWeb} uuid={uuid} --consumer-id={consumerId}";
+                processInfo.Arguments = $"--main-handle={hWnd} --hidden-mode={setting.IsHiddenMode} client-id={clientId} --consumer-id={consumerId}";
                 processInfo.UseShellExecute = false;
                 processInfo.CreateNoWindow = true;
                 Process process = new Process();
@@ -2240,8 +2176,8 @@ namespace MainClient
                 process.StartInfo = processInfo;
                 process.Exited += (a, b) =>
                 {
-                    LogWriteLine($"退出进程{uuid}");
-                    this.cefProcessManager?.Remove(uuid);
+                    LogWriteLine($"退出进程{clientId}");
+                    this.cefProcessManager?.Remove(clientId);
                     sync.Post((pi) =>
                     {
                         label15.Text = $"活动进程:{pi}";
@@ -2333,7 +2269,6 @@ namespace MainClient
                     await Task.Delay(5 * 1000);
                     sync.Post((p) =>
                     {
-                        this.taskOfList?.Writer.TryComplete();
                         this.cts.Cancel();
                         sw.Stop();
                         this.TopMost = false;
@@ -2407,69 +2342,70 @@ namespace MainClient
                 this.taskDispatchManager.Writer.TryWrite(pendingTask);
             }
             this.pendingTasks.Clear();
-            this.taskDispatchManager.Start(setting.MaximumParallel, async (writer, token) =>
-            {
-                while (!token.IsCancellationRequested)
+            this.taskDispatchManager.Start(setting.MaximumParallel,
+                async (writer, token) =>
                 {
-                    if (applicationstop || applicationrestart)
+                    while (!token.IsCancellationRequested)
                     {
-                        LogWriteLine("停止获取任务");
-                        break;
-                    }
-                    var content = CommonHelper.HttpGet($"{setting.TaskApiUrl}?type=1&action=getTask&task={setting.TaskIdentify}&test=0&_t={System.DateTime.Now.Ticks}");
-                    if (!string.IsNullOrWhiteSpace(content))
-                    {
-                        if (content.Equals("empty"))
+                        if (applicationstop || applicationrestart)
                         {
-                            sync.Post((p) => { this.taskInfoListView.Items.Clear(); }, null);
-                            LogWriteLine($"共取到[0]条任务");
+                            LogWriteLine("停止获取任务");
+                            break;
                         }
-                        else
+                        var content = CommonHelper.HttpGet($"{setting.TaskApiUrl}?type=1&action=getTask&task={setting.TaskIdentify}&test=0&_t={System.DateTime.Now.Ticks}");
+                        if (!string.IsNullOrWhiteSpace(content))
                         {
-                            try
+                            if (content.Equals("empty"))
                             {
-                                var tasks = (JObject)JsonConvert.DeserializeObject(content);
-                                int taskCount = tasks["task"].Count();
-                                if (taskCount > 0)
+                                sync.Post((p) => { this.taskInfoListView.Items.Clear(); }, null);
+                                LogWriteLine($"共取到[0]条任务");
+                            }
+                            else
+                            {
+                                try
                                 {
-                                    if (setting.Multiple > 1)
+                                    var tasks = (JObject)JsonConvert.DeserializeObject(content);
+                                    int taskCount = tasks["task"].Count();
+                                    if (taskCount > 0)
                                     {
-                                        for (int i = 0; i < setting.Multiple; i++)
+                                        if (setting.Multiple > 1)
+                                        {
+                                            for (int i = 0; i < setting.Multiple; i++)
+                                            {
+                                                foreach (var task in tasks["task"])
+                                                {
+                                                    await writer.WriteAsync(task, token);
+                                                }
+                                            }
+                                        }
+                                        else
                                         {
                                             foreach (var task in tasks["task"])
                                             {
                                                 await writer.WriteAsync(task, token);
                                             }
                                         }
+                                        AddTaskInfo(tasks["task"]);
+                                        LogWriteLine($"获取[{taskCount}]条任务");
                                     }
-                                    else
-                                    {
-                                        foreach (var task in tasks["task"])
-                                        {
-                                            await writer.WriteAsync(task, token);
-                                        }
-                                    }
-                                    AddTaskInfo(tasks["task"]);
-                                    LogWriteLine($"获取[{taskCount}]条任务");
+                                }
+                                catch (Exception ex)
+                                {
+                                    Debug.WriteLine(ex.Message);
                                 }
                             }
-                            catch (Exception ex)
-                            {
-                                Debug.WriteLine(ex.Message);
-                            }
                         }
+                        else
+                        {
+                            LogWriteLine("获取任务");
+                        }
+                        SpinWait.SpinUntil(() => token.IsCancellationRequested, setting.GetTaskInterval);
                     }
-                    else
-                    {
-                        LogWriteLine("获取任务");
-                    }
-                    SpinWait.SpinUntil(() => token.IsCancellationRequested, setting.GetTaskInterval);
-                }
-            }, async (consumerId, reader, token) =>
+                },
+                async (consumerId, reader, token) =>
                 {
 
-                    int jobTotals = 0;
-                    int jobTimeRandomSeed = setting.SubResetInterval * 60 + new Random(Guid.NewGuid().GetHashCode()).Next(-30, 30);
+                    int jobTimeRandomSeed = setting.ChildProcessResetIntervalMinutes * 60 + new Random(Guid.NewGuid().GetHashCode()).Next(-30, 30);
 
                     bool jobFirst = true;
                     bool jobCopyFile = true;
@@ -2489,15 +2425,14 @@ namespace MainClient
                             {
                                 LogInfo($"创建进程:开始");
                                 jobFirst = false;
-                                jobTotals = 0;
-                                jobTimeRandomSeed = setting.SubResetInterval * 60 + new Random(Guid.NewGuid().GetHashCode()).Next(-30, 30);
-                                var uuid = Guid.NewGuid().ToString("N");
-                                var sourceFileName = System.IO.Path.Combine(System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase, "CefClient", "CefClient.exe");
-                                var processPath = System.IO.Path.Combine(System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase, "chrome", $"CefClient{consumerId}");
+                                jobTimeRandomSeed = setting.ChildProcessResetIntervalMinutes * 60 + new Random(Guid.NewGuid().GetHashCode()).Next(-30, 30);
+                                var clientId = Guid.NewGuid().ToString("N");
+                                var sourceFileName = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "CefClient", "CefClient.exe");
+                                var processPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "chrome", $"CefClient{consumerId}");
                                 var destFileName = System.IO.Path.Combine(processPath, "CefClient.exe");
                                 if (!File.Exists(destFileName))
                                 {
-                                    CommonHelper.CopyFilesRecursively(new DirectoryInfo(System.IO.Path.Combine(System.AppDomain.CurrentDomain.SetupInformation.ApplicationBase, "CefClient")), new DirectoryInfo(processPath));
+                                    CommonHelper.CopyFilesRecursively(new DirectoryInfo(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "CefClient")), new DirectoryInfo(processPath));
                                 }
                                 else
                                 {
@@ -2514,9 +2449,9 @@ namespace MainClient
 
                                     }
                                 }
-                                process = CreateNewProcess(destFileName, this.selfWndHandle, uuid, consumerId);
+                                process = CreateNewProcess(destFileName, this.selfWndHandle, clientId, consumerId);
                                 client = new ProcessItem() { ProcessId = process.Id, ClientWindowHandle = 0, ProcessPath = destFileName, time = System.DateTime.Now };
-                                this.cefProcessManager.Register(uuid, client);
+                                this.cefProcessManager.Register(clientId, client);
                                 SpinWait.SpinUntil(() => this.cts.IsCancellationRequested || client.ClientWindowHandle != 0, 30 * 1000);
                                 try
                                 {
@@ -2544,8 +2479,6 @@ namespace MainClient
                             string proxy_server = string.Empty;
                             string realIp = string.Empty;
                             string ip = string.Empty;
-                            string authuser = string.Empty;
-                            string authpass = string.Empty;
 
                         redo_getip:
                             if (this.cts.IsCancellationRequested || applicationrestart)
@@ -2559,7 +2492,7 @@ namespace MainClient
                                 if (string.IsNullOrWhiteSpace(proxyJSON) || !proxyJSON.Contains(":") || proxyJSON.Contains("频繁") || proxyJSON.Contains("频率") || proxyJSON.Contains("太快") || proxyJSON.Contains("失败") || proxyJSON.Contains("错误") || proxyJSON.Contains("余额不足"))
                                 {
                                     LogWriteLine($"IP异常:{proxyJSON}");
-                                    logger.Error($"任务[{task["id"]}]:,地区:{task["address"]},IP异常{proxyJSON}");
+                                    _logger.LogError($"任务[{task["id"]}]:,地区:{task["address"]},IP异常{proxyJSON}");
                                     await Task.Delay(new Random().Next(50, 100));
                                     goto redo_getip;
                                 }
@@ -2602,8 +2535,6 @@ namespace MainClient
                                     ipData = (JObject)JsonConvert.DeserializeObject(proxyJSON);
                                     task_province = ipData["province"].ToString().Trim();
                                     task_city = ipData["city"].ToString().Trim();
-                                    authuser = ipData["authuser"]?.ToString();
-                                    authpass = ipData["authpass"]?.ToString();
                                     //LogWriteLine("proxyJSON=" + proxyJSON);
                                     if (proxyJSON.Contains("data") && proxyJSON.Contains("success") && proxyJSON.Contains("province") && proxyJSON.Contains("city"))
                                     {
@@ -2617,7 +2548,7 @@ namespace MainClient
                                             if (ipData["data"].Count() == 0)
                                             {
                                                 LogWriteLine("IP异常1");
-                                                logger.Error($"任务[{task["id"]}]:,地区:{task["address"]},IP异常{proxyJSON}");
+                                                _logger.LogError($"任务[{task["id"]}]:,地区:{task["address"]},IP异常{proxyJSON}");
                                                 await Task.Delay(new Random().Next(50, 100));
                                                 goto redo_getip;
                                             }
@@ -2663,7 +2594,7 @@ namespace MainClient
                                     if (!Regex.IsMatch(proxyJSON, pattern))
                                     {
                                         LogWriteLine("IP异常2:" + proxyJSON);
-                                        logger.Error($"任务[{task["id"]}]:,地区:{task["address"]},IP异常{proxyJSON}");
+                                        _logger.LogError($"任务[{task["id"]}]:,地区:{task["address"]},IP异常{proxyJSON}");
                                         await Task.Delay(new Random().Next(100, 200));
                                         goto redo_getip;
                                     }
@@ -2688,7 +2619,7 @@ namespace MainClient
                                     }
                                 }
 
-                                logger.Info($"任务[{task["id"]}]:{title},IP:{realIp},地区:{task["address"]}");
+                                _logger.LogInformation($"任务[{task["id"]}]:{title},IP:{realIp},地区:{task["address"]}");
                                 if (!string.IsNullOrWhiteSpace(proxy_server) && proxy_server.Contains(":"))
                                 {
                                     ip = proxy_server.Substring(0, proxy_server.IndexOf(":"));
@@ -2705,7 +2636,7 @@ namespace MainClient
                                 if (setting.IPAreaCheck)
                                 {
                                     var areaJson = GetIpAreaByLocal(ip, proxy_server);
-                                    logger.Info($"IP检测:{areaJson}");
+                                    _logger.LogInformation($"IP检测:{areaJson}");
                                     if (string.IsNullOrWhiteSpace(areaJson))
                                     {
                                         LogWriteLine($"IP异常,代理无效:{proxyJSON}");
@@ -2795,7 +2726,6 @@ namespace MainClient
                                 }
                                 if (process.HasExited)
                                 {
-                                    jobTotals = 0;
                                     jobFirst = true;
                                     jobCopyFile = false;
                                     break;
@@ -2817,7 +2747,7 @@ namespace MainClient
 
 
                                 OSType os = OSType.UNUNKNOWN;
-            
+
 
                                 if (abl != 0)
                                 {
@@ -2931,20 +2861,14 @@ namespace MainClient
                                 {
                                     _args["IsProxyMode"] = false;
                                     _args["proxy_server"] = null;
-                                    //_args["Username"] = null;
-                                    //_args["Password"] = null;
-
                                 }
                                 else
                                 {
                                     _args["IsProxyMode"] = true;
                                     _args["proxy_server"] = proxy_server;
-                                    //_args["Username"] = authuser;
-                                    //_args["Password"] = authpass;
 
                                 }
                                 _args["os"] = (int)os;
-
                                 var msgret = SendLoadUrlMessage(client, uv_url, uv_url2, _args, ua, referer, task, dev, cacheIndex);
                                 Interlocked.Increment(ref TotalUVCount);
                                 LogWriteLine($"提交任务[{task["id"]}]:{task["title"]},process=[{consumerId}],os={os},osv={dev["osv"]},cache={cacheIndex},{proxy_server},{uvIndex}/{uvCount}");
@@ -2960,13 +2884,11 @@ namespace MainClient
                                 }
                             }
 
-
                             #region 清理代码
                             if (!jobFirst)
                             {
-                                if (process != null && !process.HasExited && setting.SubResetInterval > 0 && ((TimeSpan)(System.DateTime.Now - process.StartTime)).TotalSeconds > jobTimeRandomSeed)
+                                if (process != null && !process.HasExited && setting.ChildProcessResetIntervalMinutes > 0 && ((TimeSpan)(System.DateTime.Now - process.StartTime)).TotalSeconds > jobTimeRandomSeed)
                                 {
-                                    jobTotals = 0;
                                     jobFirst = true;
                                     jobCopyFile = false;
                                     if (process != null && !process.HasExited)
@@ -2989,7 +2911,7 @@ namespace MainClient
                                 }
                             }
                             #endregion
-                            //await Task.Delay(1000, this.cts.Token);
+
                             SpinWait.SpinUntil(() => this.cts.IsCancellationRequested, setting.UVInterval);
                         }
                     }
@@ -3006,7 +2928,7 @@ namespace MainClient
                             CommonHelper.KillProcExec(process.Id);
                         }
                     }
-            }, this.cts.Token);
+                }, this.cts.Token);
 
             #endregion
 
@@ -3014,11 +2936,11 @@ namespace MainClient
             var defends = Task.Factory.StartNew(async () =>
             {
                 var restartGuard = new AppRestartGuard(
-                    setting.MainResetInterval,
+                    setting.MainProcessResetIntervalMinutes,
                     setting.SendSms,
                     setting.SendSmsTimeout,
                     LogWriteLine,
-                    SendSms);
+                    AdxHelper.SendSms);
                 await restartGuard.WaitForRestartAsync(this.cts.Token, setting.SmsName, setting.SmsPhone);
                 if (this.cts.IsCancellationRequested)
                 {
@@ -3037,7 +2959,7 @@ namespace MainClient
                 if (remainingTasks.Count > 0)
                 {
                     ///暂时存任务列表
-                    logger.Info("暂时存任务列表");
+                    _logger.LogInformation("暂时存任务列表");
                     try
                     {
                         tasklist_dat = $"tasklist_dat{System.DateTime.Now.Ticks}.tmp";
@@ -3046,30 +2968,30 @@ namespace MainClient
                     }
                     catch (Exception ex)
                     {
-                        logger.Error(ex);
+                        _logger.LogError(ex, ex.Message);
                     }
 
                 }
-                logger.Info("延时5秒");
+                _logger.LogInformation("延时5秒");
                 await Task.Delay(5000);
                 if (this.cefProcessManager != null && this.cefProcessManager.Count > 0)
                 {
-                    logger.Info("清理未结束的进程");
+                    _logger.LogInformation("清理未结束的进程");
                     this.cefProcessManager.KillAll();
                 }
                 CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
                 sync.Post((p) =>
                 {
-                    logger.Info("清理所有的进程内存");
-                    NativeMethod.EmptyWorkingSet(Process.GetCurrentProcess().Handle);
+                    _logger.LogInformation("清理所有的进程内存");
+                    //NativeMethod.EmptyWorkingSet(Process.GetCurrentProcess().Handle);
                     string arguments = $"restart";
                     if (!string.IsNullOrWhiteSpace(tasklist_dat))
                     {
                         arguments = $"{arguments} tasklist_dat={tasklist_dat}";
                     }
-                    logger.Info($"重启进程{arguments}");
+                    _logger.LogInformation($"重启进程{arguments}");
                     Process.Start(Application.ExecutablePath, arguments);
-                    logger.Info("关闭当前进程");
+                    _logger.LogInformation("关闭当前进程");
                     try
                     {
                         Process.GetCurrentProcess().Kill();
@@ -3077,7 +2999,7 @@ namespace MainClient
                     catch (Exception ex)
                     {
                         CommonHelper.KillProcExec(Process.GetCurrentProcess().Id);
-                        logger.Error(ex.Message);
+                        _logger.LogError(ex.Message);
                         Debug.WriteLine(ex.Message);
                     }
 
@@ -3100,7 +3022,7 @@ namespace MainClient
                 {
                     try
                     {
-                        NativeMethod.EmptyWorkingSet(process.Handle);
+                        //NativeMethod.EmptyWorkingSet(process.Handle);
                     }
                     catch (Exception)
                     {
@@ -3126,7 +3048,7 @@ namespace MainClient
             {
                 foreach (var p in this.processOfList.Keys)
                 {
-                    SendShowFormMessage(this.processOfList[p].ClientWindowHandle, checkBox_ShowWeb.Checked);
+                    //SendShowFormMessage(this.processOfList[p].ClientWindowHandle, checkBox_ShowWeb.Checked);
                 }
             }
 
@@ -3134,7 +3056,7 @@ namespace MainClient
 
         private void button2_Click(object sender, EventArgs e)
         {
-            SendSms(textBox_SmsName.Text, textBox_SmsPhone.Text);
+            AdxHelper.SendSms(textBox_SmsName.Text, textBox_SmsPhone.Text);
         }
 
 

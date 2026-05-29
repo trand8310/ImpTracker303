@@ -781,7 +781,7 @@ namespace CefClient
         private void ParseCommandLineArgs()
         {
             var args = Environment.GetCommandLineArgs();
-            hMainWnd = GetCommandLineIntPtr(args, "--main-window-handle=");
+            hMainWnd = GetCommandLineIntPtr(args, "--main-handle=");
             isHiddenMode = GetCommandLineBool(args, "--hidden-mode=", false);
             _clientId = GetCommandLineString(args, "--client-id=");
         }

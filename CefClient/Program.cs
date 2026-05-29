@@ -1,12 +1,6 @@
 ﻿using CefClient.Common;
 using CefSharp;
 using CefSharp.OffScreen;
-using System;
-using System.IO;
-using System.Linq;
-using System.Reflection;
-using System.Threading.Tasks;
-using System.Windows.Forms;
 
 namespace CefClient
 {
@@ -22,6 +16,8 @@ namespace CefClient
         [STAThread]
         public static int Main(string[] args)
         {
+            ApplicationConfiguration.Initialize();
+            Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
 
             var consumerId = args
@@ -112,8 +108,8 @@ namespace CefClient
                     Cef.Shutdown();
                 }
             };
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
+            //Application.EnableVisualStyles();
+            //Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new MainForm());
             return 0;
         }

@@ -21,7 +21,6 @@ namespace MainClient
             Application.SetCompatibleTextRenderingDefault(false);
             ConfigureServices();
             Application.Run((MainForm)ServiceProvider.GetService(typeof(MainForm)));
-
         }
 
         private static void ConfigureServices()

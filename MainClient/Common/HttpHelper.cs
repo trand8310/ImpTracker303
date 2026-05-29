@@ -9,19 +9,15 @@
 /// 修改日期：2020-02-10
 /// 版 本 号：2.2.9
 /// </summary>
-using System;
-using System.Collections.Generic;
 using System.Text;
 using System.Net;
-using System.IO;
 using System.Text.RegularExpressions;
 using System.IO.Compression;
 using System.Security.Cryptography.X509Certificates;
 using System.Net.Security;
-using System.Linq;
-using System.Net.Cache;
+ 
 
-namespace SamMate.Common
+namespace MainClient.Common
 {
     /// <summary>
     /// Http连接操作帮助类

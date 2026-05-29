@@ -9,7 +9,7 @@ namespace MainClient.Models
     {
         public string ProcessPath { get; set; }
         public int ProcessId { get; set; }
-        public int ClientWindowHandle { get; set; }
+        public IntPtr ClientWindowHandle { get; set; }
         public DateTime time { get; set; }
 
         public int Count;
