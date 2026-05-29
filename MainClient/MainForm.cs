@@ -827,7 +827,8 @@ namespace MainClient
         private void StartRunningTasks()
         {
             UpdateAppSetting();
-            this.taskDispatchManager = new TaskDispatchManager(GetTaskQueueCapacity());
+            this.taskDispatchManager = new TaskDispatchManager(GetTaskQueueCapacity(), LogWriteLine, ex => LogWriteLine(ex.ToString()));
+            SubscribeTaskDispatchManagerEvents(this.taskDispatchManager);
             this.selfWndHandle = this.Handle;
             this.processOfList = new System.Collections.Concurrent.ConcurrentDictionary<string, ProcessItem>();
             this.processOfList.Clear();
@@ -852,6 +853,52 @@ namespace MainClient
             #endregion
 
             StartRestartGuard();
+        }
+
+
+        private void SubscribeTaskDispatchManagerEvents(TaskDispatchManager manager)
+        {
+            manager.StateChanged += (_, e) =>
+            {
+                LogInfo($"任务调度器状态变更：{e.OldState} -> {e.NewState}");
+
+                if (e.Exception != null)
+                {
+                    LogWriteLine($"任务调度器异常：{e.Exception.Message}");
+                }
+
+                this.InvokeOnUiThreadIfRequired(() =>
+                {
+                    if (e.NewState == RunnerState.Running)
+                    {
+                        buttonStart.Text = "停止";
+                        buttonStart.ForeColor = Color.Blue;
+                        buttonStart.Enabled = true;
+                    }
+                    else if (e.NewState == RunnerState.Stopping)
+                    {
+                        buttonStart.Text = "停止中...";
+                        buttonStart.ForeColor = Color.Black;
+                        buttonStart.Enabled = false;
+                    }
+                    else if (e.NewState == RunnerState.Stopped || e.NewState == RunnerState.Faulted)
+                    {
+                        buttonStart.Text = "开始";
+                        buttonStart.ForeColor = Color.Black;
+                        buttonStart.Enabled = true;
+                    }
+                });
+            };
+
+            manager.TaskReceived += (_, e) =>
+            {
+                LogInfo($"任务入队：id={e.TaskId ?? "-"}");
+            };
+
+            manager.TaskConsumed += (_, e) =>
+            {
+                LogInfo($"任务出队：consumer={e.ConsumerId?.ToString() ?? "-"}, id={e.TaskId ?? "-"}");
+            };
         }
 
         private void StartRestartGuard()
