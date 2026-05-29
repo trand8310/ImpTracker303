@@ -2573,6 +2573,16 @@ namespace MainClient
                             goto redo_getip;
                         }
 
+                        _logger.LogInformation($"任务[{task["id"]}]:{title},IP:{realIp},地区:{task["address"]}");
+                        if (!string.IsNullOrWhiteSpace(proxy_server) && proxy_server.Contains(":"))
+                        {
+                            ip = proxy_server.Substring(0, proxy_server.IndexOf(":"));
+                        }
+                        else
+                        {
+                            LogWriteLine($"IP异常");
+                            goto redo_getip;
+                        }
 
                         #region IP地区检测
                         string isp = string.Empty;
@@ -2622,12 +2632,21 @@ namespace MainClient
 
 
 
+                    }
 
 
 
 
                     }
 
+                    string url = task["url"].ToString();
+                    string url2 = task["url2"].ToString();
+                    int uvCount = Convert.ToInt32(task["uv"].ToString());
+                    bool huichuan = false;
+                    if (task["huichuan"] != null && task["huichuan"].ToString().Equals("on"))
+                    {
+                        huichuan = true;
+                    }
 
 
 
