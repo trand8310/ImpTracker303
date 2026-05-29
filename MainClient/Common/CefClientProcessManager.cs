@@ -1,4 +1,5 @@
 using MainClient.Models;
+using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
@@ -21,7 +22,7 @@ namespace MainClient.Common
             _processes.TryAdd(uuid, item);
         }
 
-        public void UpdateWindowHandle(string uuid, int hwnd)
+        public void UpdateWindowHandle(string uuid, IntPtr hwnd)
         {
             if (_processes.TryGetValue(uuid, out var client))
             {
