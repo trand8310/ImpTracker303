@@ -10,8 +10,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using static System.Windows.Forms.Design.AxImporter;
 
 namespace MainClient.Common
 {
@@ -105,6 +107,168 @@ namespace MainClient.Common
                 result.Add(item);
             }
             return result;
+        }
+
+
+
+
+
+
+        /// <summary>
+        /// 获取任务统计状态
+        /// </summary>
+        /// <param name="taskId"></param>
+        /// <param name="token"></param>
+        /// <returns></returns>
+        public async Task<JObject?> GetTaskStatusAsync(int taskId, CancellationToken token = default)
+        {
+            return await Task.FromResult<JObject>(new JObject());
+            //try
+            //{
+            //    var host = await CommonHelper.GetLocalHostAsync();
+            //    var baseUrl = new Uri(_appSettings.TaskApiUrl).GetLeftPart(UriPartial.Authority);
+            //    using var response = await client.GetAsync($"{baseUrl}/api{_apiVersion}/task-status.php?action=task_status&id={taskId}&host={System.Web.HttpUtility.UrlEncode(host)}&_t={System.DateTime.Now.Ticks}", token);
+            //    response.EnsureSuccessStatusCode();
+            //    return JsonNode.Parse(await response.Content.ReadAsStringAsync(token))?.AsObject();
+            //}
+            //catch (OperationCanceledException)
+            //{
+            //    // 请求被取消，安全退出
+            //}
+            //catch (Exception ex)
+            //{
+            //    _logger.LogError($"GetTaskStatusAsync TaskId={taskId} failed: {ex.Message}");
+            //}
+            //return null;
+        }
+
+        /// <summary>
+        /// 更新任务统计状态
+        /// </summary>
+        /// <param name="taskId">任务 ID</param>
+        /// <param name="metrics">指标字典，例如 start, dsp, click, success</param>
+        /// <param name="token">取消令牌</param>
+        /// <returns></returns>
+        public async Task<JObject?> UpdateTaskStateAsync(int taskId, Dictionary<string, long> metrics, CancellationToken token = default)
+        {
+            return await Task.FromResult<JObject>(new JObject());
+
+            //return null;
+            //try
+            //{
+            //    var host = await CommonHelper.GetLocalHostAsync();
+            //    var baseUrl = new Uri(_appSettings.TaskApiUrl).GetLeftPart(UriPartial.Authority);
+            //    StringBuilder builder = new StringBuilder(baseUrl);
+            //    builder.Append($"/api{_apiVersion}/task-status.php?action=update_task&_t={System.DateTime.Now.Ticks}");
+            //    var bidRequest = new
+            //    {
+            //        id = taskId,
+            //        host = host,
+            //        version = _options.AppVersion,
+            //        metrics = metrics
+            //    };
+            //    var postData = JsonSerializer.Serialize(bidRequest);
+            //    using var content = new StringContent(postData, Encoding.UTF8, "application/json");
+            //    using var response = await client.PostAsync(builder.ToString(), content, token);
+            //    response.EnsureSuccessStatusCode();
+            //    return JsonNode.Parse(await response.Content.ReadAsStringAsync(token))?.AsObject();
+            //}
+            //catch (OperationCanceledException)
+            //{
+            //    // 请求被取消，安全退出
+            //}
+            //catch (Exception ex)
+            //{
+            //    _logger.LogError($"UpdateTaskStateAsync TaskId={taskId} failed: {ex.Message}");
+            //}
+            //return null;
+        }
+
+
+
+        #region 代理状态统计&更新
+        public async Task<JObject?> UpdateProxyIpStateAsync(int taskId, Dictionary<string, long> metrics, IEnumerable<string> ips, CancellationToken token = default)
+        {
+            return await Task.FromResult<JObject>(new JObject());
+            //try
+            //{
+            //    var host = await CommonHelper.GetLocalHostAsync();
+            //    var baseUrl = new Uri(_appSettings.TaskApiUrl).GetLeftPart(UriPartial.Authority);
+            //    StringBuilder builder = new StringBuilder(baseUrl);
+            //    builder.Append($"/api{_apiVersion}/ip-status.php?action=request&id={taskId}&_t={System.DateTime.Now.Ticks}");
+            //    var body = new Dictionary<string, object>
+            //    {
+            //        ["metrics"] = metrics,
+            //        ["ips"] = ips
+            //    };
+            //    body["host"] = host;
+            //    body["agency"] = _appSettings.ProxyIpUrl;
+
+            //    var postData = JsonSerializer.Serialize(body);
+            //    using var content = new StringContent(postData, Encoding.UTF8, "application/json");
+            //    using var response = await client.PostAsync(builder.ToString(), content, token);
+            //    response.EnsureSuccessStatusCode();
+            //    return JsonNode.Parse(await response.Content.ReadAsStringAsync(token))?.AsObject();
+            //}
+            //catch (OperationCanceledException)
+            //{
+            //    // 请求被取消，安全退出
+            //}
+            //catch (Exception ex)
+            //{
+            //    _logger.LogError($"UpdateProxyIpStatAsync TaskId={taskId} failed: {ex.Message}");
+            //}
+            //return null;
+        }
+
+
+
+        #endregion
+
+        /// <summary>
+        /// 更新主机状态
+        /// </summary>
+        /// <param name="metrics"></param>
+        /// <param name="token"></param>
+        /// <returns></returns>
+        public async Task<JObject?> UpdateHostStateAsync(Dictionary<string, long> metrics, CancellationToken token = default)
+        {
+            return await Task.FromResult<JObject>(new JObject());
+            //metrics ??= new Dictionary<string, long>();
+            //string wordName = "default";
+            //var host = await CommonHelper.GetLocalHostAsync();
+            //return null;
+            //try
+            //{
+            //    var baseUrl = new Uri(_appSettings.TaskApiUrl).GetLeftPart(UriPartial.Authority);
+            //    StringBuilder builder = new StringBuilder(baseUrl);
+            //    builder.Append($"/api{_apiVersion}/task-status.php?action=update_host&_t={System.DateTime.Now.Ticks}");
+            //    var bidRequest = new
+            //    {
+            //        host = host,
+            //        task = _appSettings.TaskName,
+            //        version = _options.AppVersion,
+            //        proxy = GetProxyHostSafely(_appSettings.ProxyIpUrl),
+            //        fullproxy = _appSettings.ProxyIpUrl,
+            //        wordname = wordName,
+            //        metrics = metrics,
+            //    };
+            //    var postData = JsonSerializer.Serialize(bidRequest);
+            //    using var content = new StringContent(postData, Encoding.UTF8, "application/json");
+            //    using var response = await client.PostAsync(builder.ToString(), content, token);
+            //    response.EnsureSuccessStatusCode();
+            //    var resp = await response.Content.ReadAsStringAsync(token);
+            //    return JsonNode.Parse(resp)?.AsObject();
+            //}
+            //catch (OperationCanceledException)
+            //{
+            //    // 请求被取消，安全退出
+            //}
+            //catch (Exception ex)
+            //{
+            //    _logger.LogError($"UpdateHostStateAsync Host={host} failed: {ex.Message}");
+            //}
+            //return null;
         }
 
 

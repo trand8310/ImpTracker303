@@ -73,7 +73,7 @@
             label5 = new Label();
             label13 = new Label();
             numericUpDown_TaskPullIntervalMs = new NumericUpDown();
-            buttonStart = new Button();
+            btnStartStop = new Button();
             label9 = new Label();
             numericUpDown_UvExecutionIntervalMs = new NumericUpDown();
             label8 = new Label();
@@ -206,7 +206,7 @@
             groupBox2.Controls.Add(label5);
             groupBox2.Controls.Add(label13);
             groupBox2.Controls.Add(numericUpDown_TaskPullIntervalMs);
-            groupBox2.Controls.Add(buttonStart);
+            groupBox2.Controls.Add(btnStartStop);
             groupBox2.Controls.Add(label9);
             groupBox2.Controls.Add(numericUpDown_UvExecutionIntervalMs);
             groupBox2.Controls.Add(label8);
@@ -599,16 +599,16 @@
             numericUpDown_TaskPullIntervalMs.TabIndex = 14;
             numericUpDown_TaskPullIntervalMs.Value = new decimal(new int[] { 1000, 0, 0, 0 });
             // 
-            // buttonStart
+            // btnStartStop
             // 
-            buttonStart.Location = new Point(647, 24);
-            buttonStart.Margin = new Padding(5);
-            buttonStart.Name = "buttonStart";
-            buttonStart.Size = new Size(149, 70);
-            buttonStart.TabIndex = 13;
-            buttonStart.Text = "开始";
-            buttonStart.UseVisualStyleBackColor = true;
-            buttonStart.Click += buttonStart_Click;
+            btnStartStop.Location = new Point(647, 24);
+            btnStartStop.Margin = new Padding(5);
+            btnStartStop.Name = "btnStartStop";
+            btnStartStop.Size = new Size(149, 70);
+            btnStartStop.TabIndex = 13;
+            btnStartStop.Text = "开始";
+            btnStartStop.UseVisualStyleBackColor = true;
+            btnStartStop.Click += btnStartStop_Click;
             // 
             // label9
             // 
@@ -923,7 +923,7 @@
         private System.Windows.Forms.NumericUpDown numericUpDown_MaxConcurrency;
         private System.Windows.Forms.Label label9;
         private System.Windows.Forms.NumericUpDown numericUpDown_UvExecutionIntervalMs;
-        private System.Windows.Forms.Button buttonStart;
+        private System.Windows.Forms.Button btnStartStop;
         private System.Windows.Forms.NumericUpDown numericUpDown_TaskPullIntervalMs;
         private System.Windows.Forms.Label label13;
         private System.Windows.Forms.Label label5;

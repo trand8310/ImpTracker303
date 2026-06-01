@@ -1,4 +1,5 @@
 ﻿using AdxImp.Win32;
+using MainClient.AdxImp;
 using MainClient.Common;
 using MainClient.Infrastructure;
 using MainClient.Models;
@@ -28,31 +29,19 @@ namespace MainClient
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger _logger;
         private readonly AppSettings _appSettings;
-
-
         private readonly AdxHelper _adxHelper;
         private readonly IpHelper _ipHelper;
         private readonly ProxyTester _ipTester;
         private readonly TrackingUrlProcessor _trackingUrlProcessor;
-
         private CancellationTokenSource cts;
 
-        private ConcurrentDictionary<string, ProcessItem> processOfList;
 
 
-        /// <summary>
-        /// UV合计数量
-        /// </summary>
-        private int TotalUVCount = 0;
-
-
-
-
-        private TaskDispatchManager taskDispatchManager = null;
         private readonly TaskStatisticsManager taskStatisticsManager = new TaskStatisticsManager();
-        private CefClientProcessManager cefProcessManager = null;
+        private WinCopyDataMessageBus? _messageBus;
+        private IntPtr _selfWndHandle;
 
-        private IntPtr selfWndHandle = IntPtr.Zero;
+        private CefClientProcessManager cefProcessManager = null;
         private static readonly int CopyDataSendConcurrency = Math.Max(8, Math.Min(64, Environment.ProcessorCount * 4));
         private readonly SemaphoreSlim copyDataSendSemaphore = new SemaphoreSlim(CopyDataSendConcurrency, CopyDataSendConcurrency);
         private readonly CancellationTokenSource messageProcessingCts = new CancellationTokenSource();
@@ -63,6 +52,171 @@ namespace MainClient
             AllowSynchronousContinuations = false
         });
         private Task messageProcessingTask = Task.CompletedTask;
+
+        #region 消息处理
+
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            _selfWndHandle = this.Handle;
+            _messageBus = new WinCopyDataMessageBus(new WinCopyDataMessageBusOptions
+            {
+                ChannelCapacity = 10000,
+                FullMode = BoundedChannelFullMode.DropOldest,
+                RaiseEventsOnCapturedContext = true,
+                MaxMessageChars = 1024 * 1024
+            });
+            _messageBus.ClientStarted += MessageBus_ClientStarted;
+            _messageBus.TaskStageChanged += MessageBus_TaskStageChanged;
+            _messageBus.UnknownMessageReceived += MessageBus_UnknownMessageReceived;
+            _messageBus.LogReceived += MessageBus_LogReceived;
+            _messageBus.Start();
+            this.FormClosing += async (s, e) =>
+            {
+                if (_messageBus != null)
+                {
+                    await _messageBus.StopAsync();
+                    _messageBus.Dispose();
+                    _messageBus = null;
+                }
+            };
+        }
+
+        protected override void DefWndProc(ref Message m)
+        {
+            if (_messageBus != null && _messageBus.TryHandleWndProc(ref m))
+            {
+                return;
+            }
+            base.DefWndProc(ref m);
+        }
+
+        private void MessageBus_ClientStarted(object sender, ClientStartedEventArgs e)
+        {
+            // 原来的：
+            // this.cefProcessManager?.UpdateWindowHandle(clientId, clientHandle);
+
+            this.cefProcessManager?.UpdateWindowHandle(e.ClientId, e.ClientHandle);
+
+            LogWriteLine($"客户端已启动：ClientId={e.ClientId}, Hwnd={e.ClientHandle}");
+        }
+
+        private void MessageBus_TaskStageChanged(object sender, TaskStageMessageEventArgs e)
+        {
+            // 原来的：
+            // RecordTaskStageFromClient(message);
+
+            RecordTaskStageFromClient(e.Json);
+
+            LogWriteLine($"任务状态变化：Msg={e.Msg}, ClientId={e.ClientId}, Stage={e.Stage}, Status={e.Status}");
+        }
+
+        private void MessageBus_UnknownMessageReceived(object sender, UnknownClientMessageEventArgs e)
+        {
+            LogWriteLine($"收到未知客户端消息：Msg={e.Msg}");
+        }
+
+        private void MessageBus_LogReceived(object sender, MessageBusLogEventArgs e)
+        {
+            LogWriteLine(e.Message);
+        }
+
+        private void MessageBus_ErrorReceived(object sender, MessageBusErrorEventArgs e)
+        {
+            LogWriteLine($"{e.Message}：{e.Exception.Message}");
+
+            // 如果你有 ILogger
+            // _logger?.LogError(e.Exception, e.Message);
+        }
+
+
+
+
+
+
+
+
+
+
+        //private async Task<IntPtr> SendLoadUrlMessage(ProcessItem clientProcess, string url, string url2, JObject _args, string userAgent, string referer, JObject param, JToken devInfo, string cacheIndex)
+        //{
+        //    if (clientProcess == null || clientProcess.ClientWindowHandle == IntPtr.Zero)
+        //    {
+        //        LogWriteLine("LOAD消息发送失败：客户端窗口句柄为空");
+        //        return IntPtr.Zero;
+        //    }
+
+        //    var message = JsonConvert.SerializeObject(JObject.FromObject(new
+        //    {
+        //        Msg = "LOAD",
+        //        Url = url,
+        //        Url2 = url2,
+        //        args = _args,
+        //        UserAgent = userAgent,
+        //        Referer = referer,
+        //        DevInfo = devInfo,
+        //        Param = param,
+        //        CacheIndex = cacheIndex
+        //    }));
+
+        //    var cds = new COPYDATASTRUCT
+        //    {
+        //        dwData = new IntPtr(100),
+        //        lpData = message,
+        //        cbData = (message.Length + 1) * 2
+        //    };
+
+        //    await copyDataSendSemaphore.WaitAsync(this.cts?.Token ?? CancellationToken.None);
+        //    try
+        //    {
+        //        IntPtr sendResult;
+        //        var ret = NativeMethod.SendMessageTimeout(
+        //            clientProcess.ClientWindowHandle,
+        //            WinTypes.WM_COPYDATA,
+        //            selfWndHandle,
+        //            ref cds,
+        //            WinTypes.SMTO_ABORTIFHUNG,
+        //            3000,
+        //            out sendResult
+        //        );
+
+        //        if (ret == IntPtr.Zero)
+        //        {
+        //            var error = Marshal.GetLastWin32Error();
+        //            LogWriteLine($"LOAD消息发送失败或超时：ProcessId={clientProcess.ProcessId}, Hwnd={clientProcess.ClientWindowHandle}, Error={error}");
+        //        }
+
+        //        return ret;
+        //    }
+        //    finally
+        //    {
+        //        copyDataSendSemaphore.Release();
+        //    }
+        //}
+
+        //private static void SendShowFormMessage(IntPtr clientWindowHandle, bool show = true)
+        //{
+        //    if (clientWindowHandle == IntPtr.Zero)
+        //    {
+        //        return;
+        //    }
+
+        //    var message = JsonConvert.SerializeObject(JObject.FromObject(new
+        //    {
+        //        Msg = show ? "SHOW" : "HIDE",
+        //    }));
+
+        //    var cds = new COPYDATASTRUCT
+        //    {
+        //        dwData = new IntPtr(100),
+        //        lpData = message,
+        //        cbData = (message.Length + 1) * 2
+        //    };
+        //    NativeMethod.SendMessage(clientWindowHandle, WinTypes.WM_COPYDATA, 0, ref cds);
+        //}
+
+
+        #endregion
 
         #region  LogWrite
         void LogCallback(params object[] parameters)
@@ -154,192 +308,442 @@ namespace MainClient
 
         #endregion
 
-        #region 消息处理
-        private void StartMessageProcessor()
-        {
-            messageProcessingTask = Task.Run(() => ProcessClientMessagesAsync(messageProcessingCts.Token));
-        }
+        #region 任务调度管理
 
-        private async Task ProcessClientMessagesAsync(CancellationToken token)
+        private TaskDispatchManager _taskManager = default!;
+        private void InitTaskDispatchManager()
         {
-            try
+            _taskManager = new TaskDispatchManager(new TaskDispatchManagerOptions
             {
-                await foreach (var message in messageChannel.Reader.ReadAllAsync(token))
-                {
-                    ResolveMessage(message);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "客户端消息处理队列异常");
-                LogWriteLine("客户端消息处理队列异常：" + ex.Message);
-            }
-        }
+                // 队列容量,表示最多提前缓存 指定数量 任务
+                Capacity = _appSettings.ChannelCapacity,
 
-        private void ResolveMessage(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return;
-            }
+                // 停止时，把队列里还没被取出的任务落盘
+                PersistPendingOnStop = true,
 
-            try
+                // 下次启动时，先加载上次落盘的任务
+                LoadPersistedOnStart = true,
+
+                // 加载成功后删除落盘文件，避免重复执行
+                DeletePersistenceFileAfterLoad = true,
+
+                PersistenceFilePath = Path.Combine(
+                    AppContext.BaseDirectory,
+                    "pending_tasks.json"),
+
+                // 单个任务失败，不影响整体继续跑
+                ContinueOnTaskError = true,
+
+                // 停止最多等待 8 秒
+                DefaultStopTimeout = TimeSpan.FromSeconds(8)
+            });
+
+            _taskManager.ConfigureStart(new TaskDispatchStartOptions
             {
-                var message = JObject.Parse(value);
-                var msg = message.Value<string>("Msg");
-                if (string.Equals(msg, "TASK_STATUS", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(msg, "TASK_STAGE", StringComparison.OrdinalIgnoreCase))
-                {
-                    RecordTaskStageFromClient(message);
+                // 消费者数量
+                ConsumerCount = _appSettings.MaxConcurrency,
+                // 生产者方法
+                Producer = ProducerAsync,
+                // 消费者方法
+                Consumer = ConsumerAsync
+            });
+            _taskManager.StateChanged += TaskManager_StateChanged;
+            _taskManager.LogEmitted += TaskManager_LogEmitted;
+            _taskManager.TaskEnqueued += TaskManager_TaskEnqueued;
+            _taskManager.TaskDequeued += TaskManager_TaskDequeued;
+            _taskManager.TaskStarted += TaskManager_TaskStarted;
+            _taskManager.TaskSucceeded += TaskManager_TaskSucceeded;
+            _taskManager.TaskFailed += TaskManager_TaskFailed;
+            _taskManager.TaskCanceled += TaskManager_TaskCanceled;
+            _taskManager.TaskDropped += TaskManager_TaskDropped;
+            _taskManager.PendingTasksPersisted += TaskManager_PendingTasksPersisted;
+            _taskManager.PersistedTasksLoaded += TaskManager_PersistedTasksLoaded;
+            _taskManager.StatisticsChanged += TaskManager_StatisticsChanged;
+            RefreshStartStopButton(_taskManager.State);
+
+            this.FormClosing += async (s, e) =>
+            {
+                if (_taskManager == null)
                     return;
-                }
-
-                if (!string.Equals(msg, "CLIENT_STARTED", StringComparison.OrdinalIgnoreCase))
+                if (_taskManager.State == RunnerState.Running ||
+                    _taskManager.State == RunnerState.Stopping)
                 {
-                    return;
-                }
+                    e.Cancel = true;
 
-                var clientId = message.Value<string>("ClientId");
-                if (string.IsNullOrWhiteSpace(clientId))
-                {
-                    LogWriteLine("客户端注册消息缺少ClientId");
-                    return;
-                }
+                    btnStartStop.Enabled = false;
+                    btnStartStop.Text = "停止中...";
 
-                var clientHandleValue = message.Value<long?>("ClientHandle");
-                if (!clientHandleValue.HasValue || clientHandleValue.Value == 0)
-                {
-                    LogWriteLine($"客户端注册消息句柄无效：ClientId={clientId}");
-                    return;
-                }
-
-                var clientHandle = new IntPtr(clientHandleValue.Value);
-                this.cefProcessManager?.UpdateWindowHandle(clientId, clientHandle);
-            }
-            catch (JsonException ex)
-            {
-                _logger?.LogWarning(ex, "客户端消息JSON解析失败：{Message}", value);
-                LogWriteLine("客户端消息JSON解析失败：" + ex.Message);
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "客户端消息处理失败：{Message}", value);
-                LogWriteLine("客户端消息处理失败：" + ex.Message);
-            }
-        }
-
-        private async Task<IntPtr> SendLoadUrlMessage(ProcessItem clientProcess, string url, string url2, JObject _args, string userAgent, string referer, JObject param, JToken devInfo, string cacheIndex)
-        {
-            if (clientProcess == null || clientProcess.ClientWindowHandle == IntPtr.Zero)
-            {
-                LogWriteLine("LOAD消息发送失败：客户端窗口句柄为空");
-                return IntPtr.Zero;
-            }
-
-            var message = JsonConvert.SerializeObject(JObject.FromObject(new
-            {
-                Msg = "LOAD",
-                Url = url,
-                Url2 = url2,
-                args = _args,
-                UserAgent = userAgent,
-                Referer = referer,
-                DevInfo = devInfo,
-                Param = param,
-                CacheIndex = cacheIndex
-            }));
-
-            var cds = new COPYDATASTRUCT
-            {
-                dwData = new IntPtr(100),
-                lpData = message,
-                cbData = (message.Length + 1) * 2
-            };
-
-            await copyDataSendSemaphore.WaitAsync(this.cts?.Token ?? CancellationToken.None);
-            try
-            {
-                IntPtr sendResult;
-                var ret = NativeMethod.SendMessageTimeout(
-                    clientProcess.ClientWindowHandle,
-                    WinTypes.WM_COPYDATA,
-                    selfWndHandle,
-                    ref cds,
-                    WinTypes.SMTO_ABORTIFHUNG,
-                    3000,
-                    out sendResult
-                );
-
-                if (ret == IntPtr.Zero)
-                {
-                    var error = Marshal.GetLastWin32Error();
-                    LogWriteLine($"LOAD消息发送失败或超时：ProcessId={clientProcess.ProcessId}, Hwnd={clientProcess.ClientWindowHandle}, Error={error}");
-                }
-
-                return ret;
-            }
-            finally
-            {
-                copyDataSendSemaphore.Release();
-            }
-        }
-
-        private static void SendShowFormMessage(IntPtr clientWindowHandle, bool show = true)
-        {
-            if (clientWindowHandle == IntPtr.Zero)
-            {
-                return;
-            }
-
-            var message = JsonConvert.SerializeObject(JObject.FromObject(new
-            {
-                Msg = show ? "SHOW" : "HIDE",
-            }));
-
-            var cds = new COPYDATASTRUCT
-            {
-                dwData = new IntPtr(100),
-                lpData = message,
-                cbData = (message.Length + 1) * 2
-            };
-            NativeMethod.SendMessage(clientWindowHandle, WinTypes.WM_COPYDATA, 0, ref cds);
-        }
-
-        protected override void DefWndProc(ref System.Windows.Forms.Message m)
-        {
-            switch (m.Msg)
-            {
-                case WinTypes.WM_COPYDATA:
                     try
                     {
-                        var data = new COPYDATASTRUCT();
-                        data = (COPYDATASTRUCT)m.GetLParam(data.GetType());
-                        var rawMessage = data.lpData;
-                        if (!string.IsNullOrWhiteSpace(rawMessage))
+                        await _taskManager.StopAsync(new TaskDispatchStopOptions
                         {
-                            if (!messageChannel.Writer.TryWrite(rawMessage))
-                            {
-                                LogWriteLine("客户端消息队列已关闭，消息被忽略");
-                            }
-                        }
-                        m.Result = new IntPtr(1);
+                            Timeout = TimeSpan.FromSeconds(8),
+                            PersistPending = true
+                        });
+                    }
+                    catch
+                    {
+                    }
+
+                    e.Cancel = false;
+                    Close();
+                }
+
+            };
+        }
+
+        #region 状态变化事件：更新按钮文本
+        private void TaskManager_StateChanged(
+        object? sender,
+        RunnerStateChangedEventArgs e)
+        {
+            //this.InvokeOnUiThreadIfRequired(() =>
+            //{
+            //    RefreshStartStopButton(e.NewState);
+            //    AddLog($"状态变化: {e.OldState} -> {e.NewState}");
+            //});
+        }
+        private void RefreshStartStopButton(RunnerState state)
+        {
+            switch (state)
+            {
+                case RunnerState.Stopped:
+                    btnStartStop.Enabled = true;
+                    btnStartStop.Text = "开始";
+                    break;
+
+                case RunnerState.Running:
+                    btnStartStop.Enabled = true;
+                    btnStartStop.Text = "停止";
+                    break;
+
+                case RunnerState.Stopping:
+                    btnStartStop.Enabled = false;
+                    btnStartStop.Text = "停止中...";
+                    break;
+
+                case RunnerState.Faulted:
+                    btnStartStop.Enabled = true;
+                    btnStartStop.Text = "重新开始";
+                    break;
+            }
+        }
+
+        #endregion
+
+        #region 日志事件
+        private void TaskManager_LogEmitted(
+        object? sender,
+        DispatchLogEventArgs e)
+        {
+            //this.InvokeOnUiThreadIfRequired(() =>
+            //{
+            //    AddLog(e.ToString());
+
+            //    if (e.Exception != null)
+            //    {
+            //        AddLog(e.Exception.ToString());
+            //    }
+            //});
+        }
+        #endregion
+
+        #region 任务事件
+        private void TaskManager_TaskEnqueued(
+        object? sender,
+        DispatchTaskEventArgs e)
+        {
+            //this.InvokeOnUiThreadIfRequired(() =>
+            //{
+            //    AddLog($"任务入队: {e.TaskId}");
+            //});
+        }
+
+        private void TaskManager_TaskDequeued(
+            object? sender,
+            DispatchTaskEventArgs e)
+        {
+            //this.InvokeOnUiThreadIfRequired(() =>
+            //{
+            //    AddLog($"任务出队: Consumer={e.ConsumerId}, TaskId={e.TaskId}");
+            //});
+        }
+
+        private void TaskManager_TaskStarted(
+            object? sender,
+            DispatchTaskEventArgs e)
+        {
+            //this.InvokeOnUiThreadIfRequired(() =>
+            //{
+            //    AddLog($"任务开始: Consumer={e.ConsumerId}, TaskId={e.TaskId}");
+            //});
+        }
+
+        private void TaskManager_TaskSucceeded(
+            object? sender,
+            DispatchTaskEventArgs e)
+        {
+            //this.InvokeOnUiThreadIfRequired(() =>
+            //{
+            //    AddLog($"任务成功: Consumer={e.ConsumerId}, TaskId={e.TaskId}, 耗时={e.Elapsed?.TotalMilliseconds:0}ms");
+            //});
+        }
+
+        private void TaskManager_TaskFailed(
+            object? sender,
+            DispatchTaskEventArgs e)
+        {
+            //this.InvokeOnUiThreadIfRequired(() =>
+            //{
+            //    AddLog($"任务失败: Consumer={e.ConsumerId}, TaskId={e.TaskId}, Error={e.Exception?.Message}");
+            //});
+        }
+
+        private void TaskManager_TaskCanceled(
+            object? sender,
+            DispatchTaskEventArgs e)
+        {
+            //this.InvokeOnUiThreadIfRequired(() =>
+            //{
+            //    AddLog($"任务取消: Consumer={e.ConsumerId}, TaskId={e.TaskId}");
+            //});
+        }
+
+        private void TaskManager_TaskDropped(
+            object? sender,
+            DispatchTaskEventArgs e)
+        {
+            //BeginInvokeSafe(() =>
+            //{
+            //    AddLog($"任务丢弃/待落盘: TaskId={e.TaskId}");
+            //});
+        }
+        #endregion
+
+        #region 任务队列的落盘/恢复
+        private void TaskManager_PendingTasksPersisted(
+        object? sender,
+        PendingTasksPersistedEventArgs e)
+        {
+            BeginInvokeSafe(() =>
+            {
+                AddLog($"剩余任务已落盘: Count={e.Count}, File={e.FilePath}");
+            });
+        }
+
+        private void TaskManager_PersistedTasksLoaded(
+            object? sender,
+            PersistedTasksLoadedEventArgs e)
+        {
+            BeginInvokeSafe(() =>
+            {
+                AddLog($"落盘任务已恢复: Count={e.Count}, File={e.FilePath}");
+            });
+        }
+        #endregion
+
+        #region 任务执行状态统计
+        private void TaskManager_StatisticsChanged(
+        object? sender,
+        TaskDispatchSnapshot snapshot)
+        {
+            //BeginInvokeSafe(() =>
+            //{
+            //    lblQueue.Text = snapshot.QueueCount.ToString();
+            //    lblSuccess.Text = snapshot.SucceededCount.ToString();
+            //    lblFail.Text = snapshot.FailedCount.ToString();
+            //    lblRunning.Text = snapshot.State.ToString();
+            //});
+        }
+        #endregion
+
+        #region 生产任务
+        private async Task ProducerAsync(
+        ChannelWriter<JToken> writer,
+        CancellationToken token)
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    List<JToken> taskOfList;
+
+                    try
+                    {
+                        taskOfList = await _adxHelper.GetTasksAsync(token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        break;
                     }
                     catch (Exception ex)
                     {
-                        _logger?.LogError(ex, "WM_COPYDATA消息入队失败");
-                        LogWriteLine("WM_COPYDATA消息入队失败：" + ex.Message);
-                        m.Result = IntPtr.Zero;
+                        LogWriteLine($"拉取任务异常: {ex}");
+
+                        int delay = _appSettings.TaskPullErrorDelayMs <= 0
+                            ? 1000
+                            : _appSettings.TaskPullErrorDelayMs;
+
+                        await Task.Delay(delay, token).ConfigureAwait(false);
+                        continue;
                     }
-                    break;
-                default:
-                    base.DefWndProc(ref m);
-                    break;
+
+                    if (taskOfList.Count == 0)
+                    {
+                        int interval = _appSettings.TaskPullIntervalMs <= 0
+                            ? 500
+                            : _appSettings.TaskPullIntervalMs;
+
+                        await Task.Delay(interval, token).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    int multiple = _appSettings.Multiple <= 0
+                        ? 1
+                        : _appSettings.Multiple;
+
+                    int writeCount = 0;
+
+                    int fetchCount = taskOfList.Count();
+
+                    foreach (var task in taskOfList)
+                    {
+                        token.ThrowIfCancellationRequested();
+
+                        for (int i = 0; i < multiple; i++)
+                        {
+                            token.ThrowIfCancellationRequested();
+
+                            var cloned = task.DeepClone();
+
+                            if (cloned is JObject obj)
+                            {
+                                //obj["_copyIndex"] = i + 1;
+                                //obj["_copyTotal"] = multiple;
+                                //obj["_dispatchTime"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                            }
+
+                            // 重点：
+                            // 正常运行时，如果 Channel 满了，这里会等待。
+                            // 点击停止时，token 取消，这里会立即退出。
+                            await writer.WriteAsync(cloned, token).ConfigureAwait(false);
+
+                            writeCount++;
+                        }
+                    }
+
+                    LogWriteLine($"本轮取回={fetchCount}，倍率={multiple}，写入队列={writeCount}");
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                LogWriteLine("Producer 已取消。");
+            }
+            catch (ChannelClosedException)
+            {
+                LogWriteLine("Producer 检测到 Channel 已关闭。");
+            }
+            catch (Exception ex)
+            {
+                LogWriteLine($"Producer 主循环异常: {ex}");
+            }
+            finally
+            {
+                writer.TryComplete();
+            }
+        }
+
+        #endregion
+
+        #region 执行任务
+        private async Task ConsumerAsync(
+        int consumerId,
+        JToken task,
+        CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            if (task == null)
+                return;
+
+            var taskId = task["id"]?.Value<int>();
+
+
+            AddLog($"Consumer-{consumerId} 开始执行任务: {taskId}");
+
+            try
+            {
+                // 模拟任务执行耗时
+                await Task.Delay(5000, token).ConfigureAwait(false);
+
+                // 这里写你的真实业务逻辑
+                // await RunBrowserTaskAsync(task, token);
+
+                AddLog($"Consumer-{consumerId} 任务完成: {taskId}");
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                AddLog($"Consumer-{consumerId} 任务取消: {taskId}");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                AddLog($"Consumer-{consumerId} 任务异常: {taskId}, {ex.Message}");
+
+                // 这里可以选择 throw
+                // 因为 ContinueOnTaskError = true，所以 throw 后只会算单任务失败，不会拖垮整体
+                throw;
             }
         }
         #endregion
+
+        private void AddLog(string message)
+        {
+            //if (IsDisposed)
+            //    return;
+
+            //var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}{Environment.NewLine}";
+
+            //if (LogTextBox.IsDisposed)
+            //    return;
+
+            //LogTextBox.AppendText(line);
+            // _logger.LogInformation(message);
+            LogWriteLine(message);
+        }
+
+        private void BeginInvokeSafe(Action action)
+        {
+            if (IsDisposed)
+                return;
+
+            if (InvokeRequired)
+            {
+                try
+                {
+                    BeginInvoke(action);
+                }
+                catch
+                {
+                }
+            }
+            else
+            {
+                action();
+            }
+        }
+
+        #endregion
+
+        protected override async void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+            await DestroyResourcesAsync();
+        }
+        private async Task DestroyResourcesAsync()
+        {
+            await Task.CompletedTask;
+        }
+
 
 
 
@@ -362,6 +766,10 @@ namespace MainClient
             this._httpClientFactory = httpClientFactory;
 
             this.Text += $"［{AppConsts.AppVersion}］";
+
+            InitTaskDispatchManager();
+
+
             LoadAppSetting();
             if (this._appSettings == null)
             {
@@ -369,7 +777,7 @@ namespace MainClient
                 UpdateAppSetting();
             }
 
-            StartMessageProcessor();
+            //StartMessageProcessor();
 
             foreach (var c in groupBox2.Controls)
             {
@@ -422,11 +830,10 @@ namespace MainClient
             }
 
 
-            var cachePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "chrome", "User Data");
-            if (System.IO.Directory.Exists(cachePath))
-                FileHelper.CleanCefCache(cachePath, maxTotalSizeMb: 40_000, keepRecentDays: 7);
+            //var cachePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "chrome", "User Data");
+            //if (System.IO.Directory.Exists(cachePath))
+            //    FileHelper.CleanCefCache(cachePath, maxTotalSizeMb: 40_000, keepRecentDays: 7);
         }
-
 
 
 
@@ -545,172 +952,10 @@ namespace MainClient
         #endregion
 
 
-        private async Task ProducerAsync(
-            ChannelWriter<JToken> writer,
-            CancellationToken token)
-        {
-            try
-            {
-                while (!token.IsCancellationRequested)
-                {
-                    List<JToken> taskOfList;
-
-                    try
-                    {
-                        taskOfList = await _adxHelper.GetTasksAsync(token).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (token.IsCancellationRequested)
-                    {
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        LogWriteLine($"拉取任务异常: {ex}");
-
-                        int delay = _appSettings.TaskPullErrorDelayMs <= 0
-                            ? 1000
-                            : _appSettings.TaskPullErrorDelayMs;
-
-                        await Task.Delay(delay, token).ConfigureAwait(false);
-                        continue;
-                    }
-
-                    if (taskOfList.Count == 0)
-                    {
-                        int interval = _appSettings.TaskPullIntervalMs <= 0
-                            ? 500
-                            : _appSettings.TaskPullIntervalMs;
-
-                        await Task.Delay(interval, token).ConfigureAwait(false);
-                        continue;
-                    }
-
-                    int multiple = _appSettings.Multiple <= 0
-                        ? 1
-                        : _appSettings.Multiple;
-
-                    int writeCount = 0;
-
-                    int fetchCount = taskOfList.Count();
-
-                    foreach (var task in taskOfList)
-                    {
-                        token.ThrowIfCancellationRequested();
-
-                        for (int i = 0; i < multiple; i++)
-                        {
-                            token.ThrowIfCancellationRequested();
-
-                            var cloned = task.DeepClone();
-
-                            if (cloned is JObject obj)
-                            {
-                                //obj["_copyIndex"] = i + 1;
-                                //obj["_copyTotal"] = multiple;
-                                //obj["_dispatchTime"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
-                            }
-
-                            // 重点：
-                            // 正常运行时，如果 Channel 满了，这里会等待。
-                            // 点击停止时，token 取消，这里会立即退出。
-                            await writer.WriteAsync(cloned, token).ConfigureAwait(false);
-
-                            writeCount++;
-                        }
-                    }
-
-                    LogWriteLine($"本轮取回={fetchCount}，倍率={multiple}，写入队列={writeCount}");
-                }
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                LogWriteLine("Producer 已取消。");
-            }
-            catch (ChannelClosedException)
-            {
-                LogWriteLine("Producer 检测到 Channel 已关闭。");
-            }
-            catch (Exception ex)
-            {
-                LogWriteLine($"Producer 主循环异常: {ex}");
-            }
-            finally
-            {
-                writer.TryComplete();
-            }
-        }
-
-        private async Task ConsumerAsync(
-            int consumerId,
-            ChannelReader<JToken> reader,
-            CancellationToken token)
-        {
-            try
-            {
-                while (await reader.WaitToReadAsync(token).ConfigureAwait(false))
-                {
-                    while (reader.TryRead(out var item))
-                    {
-                        token.ThrowIfCancellationRequested();
-
-                        try
-                        {
-                            var id = TaskStatisticsManager.GetTaskId(item);
-
-                            RecordTaskStage(item, TaskStageNames.Start, consumerId);
-                            LogWriteLine($"Consumer-{consumerId} 开始处理任务 id={id}");
-
-                            await HandleTaskAsync(
-                                consumerId,
-                                item,
-                                token
-                            ).ConfigureAwait(false);
-
-                            RecordTaskStage(item, TaskStageNames.Complete, consumerId);
-                            LogWriteLine($"Consumer-{consumerId} 处理完成 id={id}");
-                        }
-                        catch (OperationCanceledException) when (token.IsCancellationRequested)
-                        {
-                            throw;
-                        }
-                        catch (Exception ex)
-                        {
-                            // 单个任务异常，不让整个消费者挂掉
-                            RecordTaskStage(item, TaskStageNames.Fail, consumerId, ex.Message);
-                            LogWriteLine($"Consumer-{consumerId} 处理任务异常: {ex}");
-                        }
-                    }
-                }
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                LogWriteLine($"Consumer-{consumerId} 已取消。");
-            }
-            catch (ChannelClosedException)
-            {
-                LogWriteLine($"Consumer-{consumerId} 检测到 Channel 已关闭。");
-            }
-            catch (Exception ex)
-            {
-                LogWriteLine($"Consumer-{consumerId} 异常退出: {ex}");
-            }
-        }
 
 
-        private async Task HandleTaskAsync(
-            int consumerId,
-            JToken item,
-            CancellationToken token)
-        {
-            // 这里写你的实际任务逻辑
-            // 比如打开 CefSharp、Playwright、请求接口、执行 UV 等
-            token.ThrowIfCancellationRequested();
-            await Task.Delay(Random.Shared.Next(1000,8000), token).ConfigureAwait(false);
-            // 示例：
-            var url = item["url"]?.ToString();
-            var id = item["id"]?.ToString();
-            LogWriteLine($"Consumer-{consumerId} 模拟处理任务 id={id}, url={url}");
-        }
+
+
 
 
 
@@ -765,8 +1010,8 @@ namespace MainClient
                 {
                     if (Int32.TryParse(c.Split('=')[1], out int _cnt))
                     {
-                        this.TotalUVCount = _cnt;
-                        label5.Text = $"提交数量:{this.TotalUVCount}";
+                        //this.TotalUVCount = _cnt;
+                        //label5.Text = $"提交数量:{this.TotalUVCount}";
                     }
                 }
             }
@@ -774,7 +1019,7 @@ namespace MainClient
             {
                 this.InvokeOnUiThreadIfRequired(() =>
                 {
-                    buttonStart.PerformClick();
+                    btnStartStop.PerformClick();
 
 
                 });
@@ -785,87 +1030,81 @@ namespace MainClient
             //textBox_SmsName.Text = CommonHelper.GetIpAddress();
         }
 
-        private int GetTaskQueueCapacity()
-        {
-            //return _appSettings.Multiple > 1 ? 3 + _appSettings.Multiple : 3;
-            return _appSettings.ChannelCapacity;
-        }
 
-        private async Task StopRunningTasksAsync()
+
+
+
+
+
+        private async void btnStartStop_Click(object sender, EventArgs e)
         {
+            btnStartStop.Enabled = false;
             try
             {
-                this.cts?.Cancel();
-                if (this.taskDispatchManager != null)
+                await _taskManager.ToggleAsync(new TaskDispatchStopOptions
                 {
-                    await this.taskDispatchManager.StopAsync(8 * 1000);
-                }
-                this.cefProcessManager?.KillAll();
-                CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
+                    Timeout = TimeSpan.FromSeconds(8),
+                    // 停止时保存队列中还没取出的任务
+                    PersistPending = true
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    ex.ToString(),
+                    "任务调度异常",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
             }
             finally
             {
-                ResetStartButtonAfterStop();
+                RefreshStartStopButton(_taskManager.State);
             }
-        }
 
-        private void ResetStartButtonAfterStop()
-        {
-            this.BeginInvoke(new MethodInvoker(() =>
-            {
-                this.TotalUVCount = 0;
-                buttonStart.Text = "开始";
-                buttonStart.ForeColor = Color.Black;
-                buttonStart.Enabled = true;
-                this.buttonStart.Enabled = true;
-            }));
-        }
 
-        private void buttonStart_Click(object sender, EventArgs e)
-        {
-            if (buttonStart.Text.Equals("停止"))
-            {
-                buttonStart.Enabled = false;
-                buttonStart.Text = "停止中...";
-                buttonStart.ForeColor = Color.Black;
-                this.buttonStart.Enabled = false;
-                Task.Run(StopRunningTasksAsync);
-                return;
-            }
-            StartRunningTasks();
+            //if (buttonStart.Text.Equals("停止"))
+            //{
+            //    buttonStart.Enabled = false;
+            //    buttonStart.Text = "停止中...";
+            //    buttonStart.ForeColor = Color.Black;
+            //    this.buttonStart.Enabled = false;
+            //    Task.Run(StopRunningTasksAsync);
+            //    return;
+            //}
+            //StartRunningTasks();
         }
 
         private void StartRunningTasks()
         {
-            UpdateAppSetting();
-            this.taskStatisticsManager.Reset();
-            SubscribeTaskStatisticsEvents(this.taskStatisticsManager);
-            this.taskDispatchManager = new TaskDispatchManager(GetTaskQueueCapacity(), LogWriteLine, ex => LogWriteLine(ex.ToString()));
-            SubscribeTaskDispatchManagerEvents(this.taskDispatchManager);
-            this.selfWndHandle = this.Handle;
-            this.processOfList = new System.Collections.Concurrent.ConcurrentDictionary<string, ProcessItem>();
-            this.processOfList.Clear();
-            this.cefProcessManager = new CefClientProcessManager(this.processOfList, LogWriteLine);
-            buttonStart.Text = "停止";
-            buttonStart.ForeColor = Color.Blue;
-            this.cts = new CancellationTokenSource();
-            this.cts.Token.Register(() =>
-            {
-                buttonStart.Enabled = false;
-                buttonStart.Text = "停止中...";
-                buttonStart.ForeColor = Color.Black;
-                this.buttonStart.Enabled = false;
-            });
+            //UpdateAppSetting();
+            //this.taskStatisticsManager.Reset();
+            //SubscribeTaskStatisticsEvents(this.taskStatisticsManager);
+            //this.taskDispatchManager = new TaskDispatchManager(GetTaskQueueCapacity(), LogWriteLine, ex => LogWriteLine(ex.ToString()));
+            //SubscribeTaskDispatchManagerEvents(this.taskDispatchManager);
+            //this.selfWndHandle = this.Handle;
+            //this.processOfList = new System.Collections.Concurrent.ConcurrentDictionary<string, ProcessItem>();
+            //this.processOfList.Clear();
+            //this.cefProcessManager = new CefClientProcessManager(this.processOfList, LogWriteLine);
+            //btnStartStop.Text = "停止";
+            //btnStartStop.ForeColor = Color.Blue;
+            //this.cts = new CancellationTokenSource();
+            //this.cts.Token.Register(() =>
+            //{
+            //    btnStartStop.Enabled = false;
+            //    btnStartStop.Text = "停止中...";
+            //    btnStartStop.ForeColor = Color.Black;
+            //    this.btnStartStop.Enabled = false;
+            //});
 
-            #region 获取任务及执行任务
-            this.taskDispatchManager.Start(
-                _appSettings.MaxConcurrency,
-                ProducerAsync,
-                ConsumerAsync,
-                this.cts.Token);
-            #endregion
+            //#region 获取任务及执行任务
+            //this.taskDispatchManager.Start(
+            //    _appSettings.MaxConcurrency,
+            //    ProducerAsync,
+            //    ConsumerAsync,
+            //    this.cts.Token);
+            //#endregion
 
-            StartRestartGuard();
+            //StartRestartGuard();
         }
 
 
@@ -904,11 +1143,6 @@ namespace MainClient
             LogInfo($"客户端任务阶段统计：id={record.TaskId}, stage={record.Stage}, consumer={record.ConsumerId?.ToString() ?? "-"}");
         }
 
-        private void SubscribeTaskStatisticsEvents(TaskStatisticsManager manager)
-        {
-            manager.StageChanged -= TaskStatisticsManager_StageChanged;
-            manager.StageChanged += TaskStatisticsManager_StageChanged;
-        }
 
         private void TaskStatisticsManager_StageChanged(object? sender, TaskStageChangedEventArgs e)
         {
@@ -920,143 +1154,15 @@ namespace MainClient
             }
         }
 
-        private void SubscribeTaskDispatchManagerEvents(TaskDispatchManager manager)
-        {
-            manager.StateChanged += (_, e) =>
-            {
-                LogInfo($"任务调度器状态变更：{e.OldState} -> {e.NewState}");
-
-                if (e.Exception != null)
-                {
-                    LogWriteLine($"任务调度器异常：{e.Exception.Message}");
-                }
-
-                this.InvokeOnUiThreadIfRequired(() =>
-                {
-                    if (e.NewState == RunnerState.Running)
-                    {
-                        buttonStart.Text = "停止";
-                        buttonStart.ForeColor = Color.Blue;
-                        buttonStart.Enabled = true;
-                    }
-                    else if (e.NewState == RunnerState.Stopping)
-                    {
-                        buttonStart.Text = "停止中...";
-                        buttonStart.ForeColor = Color.Black;
-                        buttonStart.Enabled = false;
-                    }
-                    else if (e.NewState == RunnerState.Stopped || e.NewState == RunnerState.Faulted)
-                    {
-                        buttonStart.Text = "开始";
-                        buttonStart.ForeColor = Color.Black;
-                        buttonStart.Enabled = true;
-                    }
-                });
-            };
-
-            manager.TaskReceived += (_, e) =>
-            {
-                LogInfo($"任务入队：id={e.TaskId ?? "-"}");
-            };
-
-            manager.TaskConsumed += (_, e) =>
-            {
-                LogInfo($"任务出队：consumer={e.ConsumerId?.ToString() ?? "-"}, id={e.TaskId ?? "-"}");
-            };
-        }
-
-        private void StartRestartGuard()
-        {
-            Task.Factory.StartNew(
-                async () => await RunRestartGuardAsync(),
-                cts.Token,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default).Unwrap();
-        }
-
-        private async Task RunRestartGuardAsync()
-        {
-            var restartGuard = new AppRestartGuard(
-                _appSettings.MainProcessResetIntervalMinutes,
-                _appSettings.SendSms,
-                _appSettings.SendSmsTimeout,
-                LogWriteLine,
-                AdxHelper.SendSms);
-            await restartGuard.WaitForRestartAsync(this.cts.Token, _appSettings.SmsName, _appSettings.SmsPhone);
-            if (this.cts.IsCancellationRequested)
-            {
-                return;
-            }
-
-            this.InvokeOnUiThreadIfRequired(() =>
-            {
-
-                this.buttonStart.Enabled = false;
-                this.button1.Enabled = false;
-            });
-
-
-            string tasklist_dat = string.Empty;
-
-            var remainingTasks = this.taskDispatchManager != null ? this.taskDispatchManager.DrainPending() : new List<JToken>();
-            if (remainingTasks.Count > 0)
-            {
-                ///暂时存任务列表
-                _logger.LogInformation("暂时存任务列表");
-                try
-                {
-                    tasklist_dat = $"tasklist_dat{System.DateTime.Now.Ticks}.tmp";
-                    System.IO.File.WriteAllText(tasklist_dat, JsonConvert.SerializeObject(remainingTasks));
-
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, ex.Message);
-                }
-
-            }
-            _logger.LogInformation("延时5秒");
-            await Task.Delay(5000);
-            if (this.cefProcessManager != null && this.cefProcessManager.Count > 0)
-            {
-                _logger.LogInformation("清理未结束的进程");
-                this.cefProcessManager.KillAll();
-            }
-            CommonHelper.ClearProcesses(new string[] { "CefClient", "CefSharp.BrowserSubprocess", "WerFault" });
-
-            this.InvokeOnUiThreadIfRequired(() =>
-            {
-
-                _logger.LogInformation("清理所有的进程内存");
-                //NativeMethod.EmptyWorkingSet(Process.GetCurrentProcess().Handle);
-                string arguments = $"restart";
-                if (!string.IsNullOrWhiteSpace(tasklist_dat))
-                {
-                    arguments = $"{arguments} tasklist_dat={tasklist_dat}";
-                }
-                _logger.LogInformation($"重启进程{arguments}");
-                Process.Start(Application.ExecutablePath, arguments);
-                _logger.LogInformation("关闭当前进程");
-                try
-                {
-                    Process.GetCurrentProcess().Kill();
-                }
-                catch (Exception ex)
-                {
-                    CommonHelper.KillProcExec(Process.GetCurrentProcess().Id);
-                    _logger.LogError(ex.Message);
-                    Debug.WriteLine(ex.Message);
-                }
-
-            });
 
 
 
-        }
+
+
 
         private void button1_Click(object sender, EventArgs e)
         {
-            buttonStart.Enabled = false;
+            btnStartStop.Enabled = false;
             button1.Enabled = false;
             Task.Run(() =>
             {
@@ -1079,7 +1185,7 @@ namespace MainClient
 
                 this.BeginInvoke(new MethodInvoker(() =>
                 {
-                    buttonStart.Enabled = true;
+                    btnStartStop.Enabled = true;
                     button1.Enabled = true;
                 }));
 
@@ -1115,6 +1221,8 @@ namespace MainClient
             string currentDirectory = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
             Process.Start(new ProcessStartInfo { FileName = currentDirectory, UseShellExecute = true });
         }
+
+
     }
 
 }
