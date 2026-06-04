@@ -22,7 +22,7 @@ namespace CefClient.Properties {
     [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "17.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
-    internal class Resources {
+    public class Resources {
         
         private static global::System.Resources.ResourceManager resourceMan;
         
@@ -36,7 +36,7 @@ namespace CefClient.Properties {
         ///   返回此类使用的缓存的 ResourceManager 实例。
         /// </summary>
         [global::System.ComponentModel.EditorBrowsableAttribute(global::System.ComponentModel.EditorBrowsableState.Advanced)]
-        internal static global::System.Resources.ResourceManager ResourceManager {
+        public static global::System.Resources.ResourceManager ResourceManager {
             get {
                 if (object.ReferenceEquals(resourceMan, null)) {
                     global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("CefClient.Properties.Resources", typeof(Resources).Assembly);
@@ -51,12 +51,157 @@ namespace CefClient.Properties {
         ///   使用此强类型资源类的所有资源查找执行重写。
         /// </summary>
         [global::System.ComponentModel.EditorBrowsableAttribute(global::System.ComponentModel.EditorBrowsableState.Advanced)]
-        internal static global::System.Globalization.CultureInfo Culture {
+        public static global::System.Globalization.CultureInfo Culture {
             get {
                 return resourceCulture;
             }
             set {
                 resourceCulture = value;
+            }
+        }
+        
+        /// <summary>
+        ///   查找类似 [1080,600,0,0,&quot;document.querySelectorAll(\&quot;iframe\&quot;)[{selector}]&quot;,0] 的本地化字符串。
+        /// </summary>
+        public static string fsfindv3 {
+            get {
+                return ResourceManager.GetString("fsfindv3", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查找类似 (() =&gt; {
+        ///alis = document.querySelectorAll(&quot;.image-box.clickable&quot;);
+        ///i=Math.floor(Math.random()*Math.floor(alis.length-1));
+        ///target=alis[i];
+        ///target.scrollIntoView();
+        ///width = target.offsetWidth;
+        ///height = target.offsetHeight;
+        ///position = target.getBoundingClientRect();
+        ///return [position.left,position.top,width,height,&quot;document.querySelectorAll(\&quot;.image-box.clickable\&quot;)[{selector}]&quot;,i]
+        ///})(); 的本地化字符串。
+        /// </summary>
+        public static string item_js {
+            get {
+                return ResourceManager.GetString("item_js", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查找类似 Object.defineProperty(window.screen,&quot;width&quot;,{get:function(){return 360;}});
+        ///Object.defineProperty(window.screen,&quot;height&quot;,{get:function(){return 640;}});
+        ///Object.defineProperty(window.screen,&quot;availHeight&quot;,{get:function(){return 360;}});
+        ///Object.defineProperty(window.screen,&quot;availWidth&quot;,{get:function(){return 640;}}); 的本地化字符串。
+        /// </summary>
+        public static string js {
+            get {
+                return ResourceManager.GetString("js", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查找类似 {
+        ///  &quot;task&quot;: {
+        ///    &quot;huichuan&quot;: &quot;on&quot;,
+        ///    &quot;abl&quot;: 80,
+        ///    &quot;abln&quot;: 0,
+        ///    &quot;yys&quot;: &quot;&quot;,
+        ///    &quot;yys_dx&quot;: 0,
+        ///    &quot;yys_lt&quot;: 0,
+        ///    &quot;yys_yd&quot;: 0,
+        ///    &quot;yysn&quot;: 0,
+        ///    &quot;id&quot;: 39963,
+        ///    &quot;admin&quot;: &quot;admin&quot;,
+        ///    &quot;cef&quot;: 3,
+        ///    &quot;title&quot;: &quot;瑞士航空点击_测试&quot;,
+        ///    &quot;type&quot;: &quot;刷UV&quot;,
+        ///    &quot;client&quot;: 1,
+        ///    &quot;referer&quot;: &quot;https://et.swiss.com/ai.aspx?extProvId=379&amp;extProvApi=lx-cn-mid&amp;extPu=Mafengwo&amp;extLi=YR_2025-09::CL_LHG::BR_SWISS::MK_CN::CN_2025-CN-LX-Mid-Funnel::CT_MID::BK_MidFunnel::CID_ND&amp;extCr=Childhood_Dreams&amp;extPm=LG_ZH::EV_mA [字符串的其余部分被截断]&quot;; 的本地化字符串。
+        /// </summary>
+        public static string JS_ARGS {
+            get {
+                return ResourceManager.GetString("JS_ARGS", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查找类似 alis = document.querySelectorAll(&quot;.recommendBox&quot;)
+        ///i=Math.floor(Math.random()*Math.floor(alis.length-1));
+        ///target=alis[i];
+        ///target.scrollIntoView();
+        ///width = target.offsetWidth;
+        ///height = target.offsetHeight;
+        ///position = target.getBoundingClientRect();
+        ///[position.left,position.top,width,height,&quot;a[href=&apos;{selector}&apos;]&quot;,target.parentElement.getAttribute(&quot;href&quot;)] 的本地化字符串。
+        /// </summary>
+        public static string js_find_tag {
+            get {
+                return ResourceManager.GetString("js_find_tag", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查找类似 [].forEach.call(document.querySelectorAll(&quot;.content_new .sement_two&quot;), function(e) {e.style.display=&apos;none&apos;;});
+        ///alis = document.querySelectorAll(&quot;.content_new .pc_list_item&quot;)
+        ///i=Math.floor(Math.random()*Math.floor(alis.length-1));
+        ///target=alis[i];
+        ///target.scrollIntoView();
+        ///width = target.offsetWidth;
+        ///height = target.offsetHeight;
+        ///position = target.getBoundingClientRect();
+        ///[position.left,position.top,width,height,&quot;.content_new .pc_list_item:nth-child({selector})&quot;,i] 的本地化字符串。
+        /// </summary>
+        public static string js_find_v2 {
+            get {
+                return ResourceManager.GetString("js_find_v2", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查找类似 {
+        ///  &quot;huichuan&quot;: &quot;on&quot;,
+        ///  &quot;abl&quot;: 80,
+        ///  &quot;abln&quot;: 0,
+        ///  &quot;yys&quot;: &quot;&quot;,
+        ///  &quot;yys_dx&quot;: 0,
+        ///  &quot;yys_lt&quot;: 0,
+        ///  &quot;yys_yd&quot;: 0,
+        ///  &quot;yysn&quot;: 0,
+        ///  &quot;id&quot;: 39963,
+        ///  &quot;admin&quot;: &quot;admin&quot;,
+        ///  &quot;cef&quot;: 3,
+        ///  &quot;title&quot;: &quot;瑞士航空点击_测试&quot;,
+        ///  &quot;type&quot;: &quot;刷UV&quot;,
+        ///  &quot;client&quot;: 1,
+        ///  &quot;referer&quot;: &quot;https://et.swiss.com/ai.aspx?extProvId=379&amp;extProvApi=lx-cn-mid&amp;extPu=Mafengwo&amp;extLi=YR_2025-09::CL_LHG::BR_SWISS::MK_CN::CN_2025-CN-LX-Mid-Funnel::CT_MID::BK_MidFunnel::CID_ND&amp;extCr=Childhood_Dreams&amp;extPm=LG_ZH::EV_mApp::CH_DIS::TG_MUL::MB_CPM::AM_Mafengwo::PB [字符串的其余部分被截断]&quot;; 的本地化字符串。
+        /// </summary>
+        public static string js_task {
+            get {
+                return ResourceManager.GetString("js_task", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   查找类似 {
+        ///  &quot;huichuan&quot;: &quot;on&quot;,
+        ///  &quot;abl&quot;: 80,
+        ///  &quot;abln&quot;: 0,
+        ///  &quot;yys&quot;: &quot;&quot;,
+        ///  &quot;yys_dx&quot;: 0,
+        ///  &quot;yys_lt&quot;: 0,
+        ///  &quot;yys_yd&quot;: 0,
+        ///  &quot;yysn&quot;: 0,
+        ///  &quot;id&quot;: 39963,
+        ///  &quot;admin&quot;: &quot;admin&quot;,
+        ///  &quot;cef&quot;: 3,
+        ///  &quot;title&quot;: &quot;瑞士航空点击_测试&quot;,
+        ///  &quot;type&quot;: &quot;刷UV&quot;,
+        ///  &quot;client&quot;: 1,
+        ///  &quot;referer&quot;: &quot;https://et.swiss.com/ai.aspx?extProvId=379&amp;extProvApi=lx-cn-mid&amp;extPu=Mafengwo&amp;extLi=YR_2025-09::CL_LHG::BR_SWISS::MK_CN::CN_2025-CN-LX-Mid-Funnel::CT_MID::BK_MidFunnel::CID_ND&amp;extCr=Childhood_Dreams&amp;extPm=LG_ZH::EV_mApp::CH_DIS::TG_MUL::MB_CPM::AM_Mafengwo::PB [字符串的其余部分被截断]&quot;; 的本地化字符串。
+        /// </summary>
+        public static string js_task2 {
+            get {
+                return ResourceManager.GetString("js_task2", resourceCulture);
             }
         }
     }

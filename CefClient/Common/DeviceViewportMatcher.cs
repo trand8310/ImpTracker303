@@ -1,5 +1,4 @@
-﻿
-namespace CefClient.Common
+﻿namespace CefClient.Common
 {
     using System;
     using System.Collections.Generic;
@@ -128,7 +127,7 @@ namespace CefClient.Common
             int sw,
             int sh,
             DeviceSystemType systemType,
-            string modelName)
+            string? modelName = null)
         {
             if (sw <= 0 || sh <= 0)
                 throw new ArgumentOutOfRangeException("sw/sh", "sw 和 sh 必须大于 0");

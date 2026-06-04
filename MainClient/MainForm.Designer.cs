@@ -28,63 +28,9 @@
         /// </summary>
         private void InitializeComponent()
         {
-            groupBox1 = new GroupBox();
-            taskInfoListView = new ListView();
-            columnHeader1 = new ColumnHeader();
-            columnHeader2 = new ColumnHeader();
-            columnHeader3 = new ColumnHeader();
-            columnHeader4 = new ColumnHeader();
-            columnHeader5 = new ColumnHeader();
-            columnHeader6 = new ColumnHeader();
-            groupBox2 = new GroupBox();
-            label12 = new Label();
-            numericUpDown_ChannelCapacity = new NumericUpDown();
-            label25 = new Label();
-            label27 = new Label();
-            numericUpDown_IpValidityDuration = new NumericUpDown();
+            toolStripStatusLabel5 = new ToolStripStatusLabel();
             checkBox_IsHiddenMode = new CheckBox();
-            checkBox_DisableImage = new CheckBox();
-            textBox_DevApiUrl = new TextBox();
-            label24 = new Label();
-            checkBox_CheckIpHealth = new CheckBox();
-            linkLabel2 = new LinkLabel();
-            linkLabel1 = new LinkLabel();
-            checkBox_UsingIOSMAC = new CheckBox();
-            checkBox_SendSms = new CheckBox();
-            checkBox_UsingIOSIMEI = new CheckBox();
-            checkBox_UsingSystemDevs = new CheckBox();
-            checkBox_CheckIpRegion = new CheckBox();
-            checkBox_NoneOS = new CheckBox();
-            label19 = new Label();
-            label18 = new Label();
-            numericUpDown_ChildProcessResetIntervalMinutes = new NumericUpDown();
-            label17 = new Label();
-            numericUpDown_MainProcessResetIntervalMinutes = new NumericUpDown();
-            label16 = new Label();
-            label15 = new Label();
-            checkBox_IsRealIp = new CheckBox();
-            label11 = new Label();
-            numericUpDown_Multiple = new NumericUpDown();
-            checkBox_IsProxyMode = new CheckBox();
-            button1 = new Button();
-            textBox_TaskApiUrl = new TextBox();
-            label10 = new Label();
-            label7 = new Label();
-            label5 = new Label();
-            label13 = new Label();
-            numericUpDown_TaskPullIntervalMs = new NumericUpDown();
-            btnStartStop = new Button();
-            label9 = new Label();
-            numericUpDown_UvExecutionIntervalMs = new NumericUpDown();
-            label8 = new Label();
-            numericUpDown_MaxConcurrency = new NumericUpDown();
-            label6 = new Label();
-            label4 = new Label();
-            textBox_TaskName = new TextBox();
-            label3 = new Label();
-            label2 = new Label();
-            textBox_ProxyIpUrl = new TextBox();
-            label1 = new Label();
+            checkBox_IsCheckIp = new CheckBox();
             groupBox5 = new GroupBox();
             button2 = new Button();
             label23 = new Label();
@@ -94,628 +40,104 @@
             label21 = new Label();
             label20 = new Label();
             textBox_SmsName = new TextBox();
-            LogTextBox = new TextBox();
-            groupBox3 = new GroupBox();
-            LogDetailTextBox = new TextBox();
+            checkBox_SendSms = new CheckBox();
+            checkBox_IsRealIp = new CheckBox();
+            label11 = new Label();
+            numericUpDown_Multiple = new NumericUpDown();
+            buttonClear = new Button();
+            textBox_TaskApiUrl = new TextBox();
+            label10 = new Label();
+            label13 = new Label();
+            numericUpDown_TaskPullInterval = new NumericUpDown();
+            btnStartStop = new Button();
+            label12 = new Label();
+            numericUpDown_MaxConcurrency = new NumericUpDown();
+            label90 = new Label();
+            numericUpDown_UvExecutionInterval = new NumericUpDown();
+            label4 = new Label();
+            textBox_TaskName = new TextBox();
+            toolStripStatusLabel6 = new ToolStripStatusLabel();
+            toolStripStatusLabel4 = new ToolStripStatusLabel();
+            toolStripStatusLabel3 = new ToolStripStatusLabel();
+            toolStripStatusLabel2 = new ToolStripStatusLabel();
+            toolStripStatusLabel1 = new ToolStripStatusLabel();
             groupBox4 = new GroupBox();
-            groupBox1.SuspendLayout();
-            groupBox2.SuspendLayout();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_ChannelCapacity).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_IpValidityDuration).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_ChildProcessResetIntervalMinutes).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_MainProcessResetIntervalMinutes).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_Multiple).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_TaskPullIntervalMs).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_UvExecutionIntervalMs).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_MaxConcurrency).BeginInit();
+            statusStrip1 = new StatusStrip();
+            lblStatus = new ToolStripStatusLabel();
+            label3 = new Label();
+            radioButton_UseLocalDev = new RadioButton();
+            radioButton_UsingRealDev = new RadioButton();
+            radioButton_UseSystemDev = new RadioButton();
+            textBox_ProxyIpUrl = new TextBox();
+            label1 = new Label();
+            groupBox6 = new GroupBox();
+            label2 = new Label();
+            label25 = new Label();
+            label27 = new Label();
+            numericUpDown_IpValidityDuration = new NumericUpDown();
+            label24 = new Label();
+            label16 = new Label();
+            numericUpDown_PageLoadTimeout = new NumericUpDown();
+            label_start = new Label();
+            label_click = new Label();
+            groupBox2 = new GroupBox();
+            checkBox_IsOsrMode = new CheckBox();
+            label_dsp = new Label();
+            label_time = new Label();
+            label_request = new Label();
+            linkLabel1 = new LinkLabel();
+            checkBox_IsDetailLog = new CheckBox();
+            textBox_DevApiUrl = new TextBox();
+            label14 = new Label();
+            label19 = new Label();
+            label18 = new Label();
+            numericUpDown_ChildProcessResetIntervalMinutes = new NumericUpDown();
+            label17 = new Label();
+            numericUpDown_MainProcessResetIntervalMinutes = new NumericUpDown();
+            label26 = new Label();
+            checkBox_IsProxyMode = new CheckBox();
             groupBox5.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_SendSmsTimeout).BeginInit();
-            groupBox3.SuspendLayout();
-            groupBox4.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_Multiple).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_TaskPullInterval).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_MaxConcurrency).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_UvExecutionInterval).BeginInit();
+            statusStrip1.SuspendLayout();
+            groupBox6.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_IpValidityDuration).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_PageLoadTimeout).BeginInit();
+            groupBox2.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_ChildProcessResetIntervalMinutes).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_MainProcessResetIntervalMinutes).BeginInit();
             SuspendLayout();
             // 
-            // groupBox1
+            // toolStripStatusLabel5
             // 
-            groupBox1.Controls.Add(taskInfoListView);
-            groupBox1.Dock = DockStyle.Left;
-            groupBox1.Location = new Point(0, 462);
-            groupBox1.Margin = new Padding(5, 2, 5, 2);
-            groupBox1.Name = "groupBox1";
-            groupBox1.Padding = new Padding(5, 2, 5, 2);
-            groupBox1.Size = new Size(542, 418);
-            groupBox1.TabIndex = 1;
-            groupBox1.TabStop = false;
-            groupBox1.Text = "任务列表";
-            // 
-            // taskInfoListView
-            // 
-            taskInfoListView.Columns.AddRange(new ColumnHeader[] { columnHeader1, columnHeader2, columnHeader3, columnHeader4, columnHeader5, columnHeader6 });
-            taskInfoListView.Dock = DockStyle.Fill;
-            taskInfoListView.FullRowSelect = true;
-            taskInfoListView.GridLines = true;
-            taskInfoListView.Location = new Point(5, 25);
-            taskInfoListView.Margin = new Padding(5, 2, 5, 2);
-            taskInfoListView.Name = "taskInfoListView";
-            taskInfoListView.Size = new Size(532, 391);
-            taskInfoListView.TabIndex = 0;
-            taskInfoListView.UseCompatibleStateImageBehavior = false;
-            taskInfoListView.View = View.Details;
-            // 
-            // columnHeader1
-            // 
-            columnHeader1.Text = "任务名称";
-            columnHeader1.Width = 120;
-            // 
-            // columnHeader2
-            // 
-            columnHeader2.Text = "IP地址";
-            columnHeader2.Width = 100;
-            // 
-            // columnHeader3
-            // 
-            columnHeader3.Text = "真实IP";
-            // 
-            // columnHeader4
-            // 
-            columnHeader4.Text = "延迟";
-            // 
-            // columnHeader5
-            // 
-            columnHeader5.Text = "归属地";
-            // 
-            // columnHeader6
-            // 
-            columnHeader6.Text = "状态";
-            columnHeader6.Width = 120;
-            // 
-            // groupBox2
-            // 
-            groupBox2.Controls.Add(label12);
-            groupBox2.Controls.Add(numericUpDown_ChannelCapacity);
-            groupBox2.Controls.Add(label25);
-            groupBox2.Controls.Add(label27);
-            groupBox2.Controls.Add(numericUpDown_IpValidityDuration);
-            groupBox2.Controls.Add(checkBox_IsHiddenMode);
-            groupBox2.Controls.Add(checkBox_DisableImage);
-            groupBox2.Controls.Add(textBox_DevApiUrl);
-            groupBox2.Controls.Add(label24);
-            groupBox2.Controls.Add(checkBox_CheckIpHealth);
-            groupBox2.Controls.Add(linkLabel2);
-            groupBox2.Controls.Add(linkLabel1);
-            groupBox2.Controls.Add(checkBox_UsingIOSMAC);
-            groupBox2.Controls.Add(checkBox_SendSms);
-            groupBox2.Controls.Add(checkBox_UsingIOSIMEI);
-            groupBox2.Controls.Add(checkBox_UsingSystemDevs);
-            groupBox2.Controls.Add(checkBox_CheckIpRegion);
-            groupBox2.Controls.Add(checkBox_NoneOS);
-            groupBox2.Controls.Add(label19);
-            groupBox2.Controls.Add(label18);
-            groupBox2.Controls.Add(numericUpDown_ChildProcessResetIntervalMinutes);
-            groupBox2.Controls.Add(label17);
-            groupBox2.Controls.Add(numericUpDown_MainProcessResetIntervalMinutes);
-            groupBox2.Controls.Add(label16);
-            groupBox2.Controls.Add(label15);
-            groupBox2.Controls.Add(checkBox_IsRealIp);
-            groupBox2.Controls.Add(label11);
-            groupBox2.Controls.Add(numericUpDown_Multiple);
-            groupBox2.Controls.Add(checkBox_IsProxyMode);
-            groupBox2.Controls.Add(button1);
-            groupBox2.Controls.Add(textBox_TaskApiUrl);
-            groupBox2.Controls.Add(label10);
-            groupBox2.Controls.Add(label7);
-            groupBox2.Controls.Add(label5);
-            groupBox2.Controls.Add(label13);
-            groupBox2.Controls.Add(numericUpDown_TaskPullIntervalMs);
-            groupBox2.Controls.Add(btnStartStop);
-            groupBox2.Controls.Add(label9);
-            groupBox2.Controls.Add(numericUpDown_UvExecutionIntervalMs);
-            groupBox2.Controls.Add(label8);
-            groupBox2.Controls.Add(numericUpDown_MaxConcurrency);
-            groupBox2.Controls.Add(label6);
-            groupBox2.Controls.Add(label4);
-            groupBox2.Controls.Add(textBox_TaskName);
-            groupBox2.Controls.Add(label3);
-            groupBox2.Controls.Add(label2);
-            groupBox2.Controls.Add(textBox_ProxyIpUrl);
-            groupBox2.Controls.Add(label1);
-            groupBox2.Controls.Add(groupBox5);
-            groupBox2.Dock = DockStyle.Top;
-            groupBox2.Location = new Point(0, 0);
-            groupBox2.Margin = new Padding(5, 2, 5, 2);
-            groupBox2.Name = "groupBox2";
-            groupBox2.Padding = new Padding(5, 2, 5, 2);
-            groupBox2.Size = new Size(1309, 462);
-            groupBox2.TabIndex = 2;
-            groupBox2.TabStop = false;
-            groupBox2.Text = "设置";
-            // 
-            // label12
-            // 
-            label12.AutoSize = true;
-            label12.Location = new Point(52, 314);
-            label12.Margin = new Padding(5, 0, 5, 0);
-            label12.Name = "label12";
-            label12.Size = new Size(86, 24);
-            label12.TabIndex = 101;
-            label12.Text = "任务队列:";
-            // 
-            // numericUpDown_ChannelCapacity
-            // 
-            numericUpDown_ChannelCapacity.Location = new Point(149, 310);
-            numericUpDown_ChannelCapacity.Margin = new Padding(5, 2, 5, 2);
-            numericUpDown_ChannelCapacity.Maximum = new decimal(new int[] { 999, 0, 0, 0 });
-            numericUpDown_ChannelCapacity.Name = "numericUpDown_ChannelCapacity";
-            numericUpDown_ChannelCapacity.Size = new Size(92, 30);
-            numericUpDown_ChannelCapacity.TabIndex = 102;
-            numericUpDown_ChannelCapacity.Value = new decimal(new int[] { 1, 0, 0, 0 });
-            // 
-            // label25
-            // 
-            label25.AutoSize = true;
-            label25.Location = new Point(529, 367);
-            label25.Margin = new Padding(6, 0, 6, 0);
-            label25.Name = "label25";
-            label25.Size = new Size(28, 24);
-            label25.TabIndex = 100;
-            label25.Text = "秒";
-            // 
-            // label27
-            // 
-            label27.AutoSize = true;
-            label27.Location = new Point(316, 367);
-            label27.Margin = new Padding(6, 0, 6, 0);
-            label27.Name = "label27";
-            label27.Size = new Size(103, 24);
-            label27.TabIndex = 98;
-            label27.Text = "Ip有效时长:";
-            // 
-            // numericUpDown_IpValidityDuration
-            // 
-            numericUpDown_IpValidityDuration.Location = new Point(423, 362);
-            numericUpDown_IpValidityDuration.Margin = new Padding(6, 5, 6, 5);
-            numericUpDown_IpValidityDuration.Name = "numericUpDown_IpValidityDuration";
-            numericUpDown_IpValidityDuration.Size = new Size(103, 30);
-            numericUpDown_IpValidityDuration.TabIndex = 99;
-            numericUpDown_IpValidityDuration.Value = new decimal(new int[] { 1, 0, 0, 0 });
+            toolStripStatusLabel5.Name = "toolStripStatusLabel5";
+            toolStripStatusLabel5.Size = new Size(82, 20);
+            toolStripStatusLabel5.Text = "曝光总量:0";
             // 
             // checkBox_IsHiddenMode
             // 
             checkBox_IsHiddenMode.AutoSize = true;
-            checkBox_IsHiddenMode.Location = new Point(960, 41);
+            checkBox_IsHiddenMode.Location = new Point(577, 144);
             checkBox_IsHiddenMode.Margin = new Padding(5);
             checkBox_IsHiddenMode.Name = "checkBox_IsHiddenMode";
-            checkBox_IsHiddenMode.Size = new Size(108, 28);
-            checkBox_IsHiddenMode.TabIndex = 77;
+            checkBox_IsHiddenMode.Size = new Size(91, 24);
+            checkBox_IsHiddenMode.TabIndex = 58;
             checkBox_IsHiddenMode.Text = "隐藏模式";
             checkBox_IsHiddenMode.UseVisualStyleBackColor = true;
             // 
-            // checkBox_DisableImage
-            // 
-            checkBox_DisableImage.AutoSize = true;
-            checkBox_DisableImage.Location = new Point(1030, 284);
-            checkBox_DisableImage.Margin = new Padding(5);
-            checkBox_DisableImage.Name = "checkBox_DisableImage";
-            checkBox_DisableImage.Size = new Size(108, 28);
-            checkBox_DisableImage.TabIndex = 76;
-            checkBox_DisableImage.Text = "禁止图片";
-            checkBox_DisableImage.UseVisualStyleBackColor = true;
-            // 
-            // textBox_DevApiUrl
-            // 
-            textBox_DevApiUrl.Location = new Point(110, 101);
-            textBox_DevApiUrl.Margin = new Padding(5, 2, 5, 2);
-            textBox_DevApiUrl.Name = "textBox_DevApiUrl";
-            textBox_DevApiUrl.Size = new Size(526, 30);
-            textBox_DevApiUrl.TabIndex = 75;
-            textBox_DevApiUrl.Text = "http://117.21.200.18:9000/api/getdev.php";
-            // 
-            // label24
-            // 
-            label24.AutoSize = true;
-            label24.Location = new Point(24, 109);
-            label24.Margin = new Padding(5, 0, 5, 0);
-            label24.Name = "label24";
-            label24.Size = new Size(86, 24);
-            label24.TabIndex = 74;
-            label24.Text = "设备接口:";
-            // 
-            // checkBox_CheckIpHealth
-            // 
-            checkBox_CheckIpHealth.AutoSize = true;
-            checkBox_CheckIpHealth.Location = new Point(623, 310);
-            checkBox_CheckIpHealth.Margin = new Padding(5);
-            checkBox_CheckIpHealth.Name = "checkBox_CheckIpHealth";
-            checkBox_CheckIpHealth.Size = new Size(124, 28);
-            checkBox_CheckIpHealth.TabIndex = 73;
-            checkBox_CheckIpHealth.Text = "IP有效校验";
-            checkBox_CheckIpHealth.UseVisualStyleBackColor = true;
-            // 
-            // linkLabel2
-            // 
-            linkLabel2.AutoSize = true;
-            linkLabel2.Location = new Point(883, 250);
-            linkLabel2.Margin = new Padding(5, 0, 5, 0);
-            linkLabel2.Name = "linkLabel2";
-            linkLabel2.Size = new Size(82, 24);
-            linkLabel2.TabIndex = 72;
-            linkLabel2.TabStop = true;
-            linkLabel2.Text = "应用目录";
-            linkLabel2.LinkClicked += linkLabel2_LinkClicked;
-            // 
-            // linkLabel1
-            // 
-            linkLabel1.AutoSize = true;
-            linkLabel1.Location = new Point(883, 211);
-            linkLabel1.Margin = new Padding(5, 0, 5, 0);
-            linkLabel1.Name = "linkLabel1";
-            linkLabel1.Size = new Size(82, 24);
-            linkLabel1.TabIndex = 71;
-            linkLabel1.TabStop = true;
-            linkLabel1.Text = "开机启动";
-            linkLabel1.LinkClicked += linkLabel1_LinkClicked;
-            // 
-            // checkBox_UsingIOSMAC
-            // 
-            checkBox_UsingIOSMAC.AutoSize = true;
-            checkBox_UsingIOSMAC.Location = new Point(725, 228);
-            checkBox_UsingIOSMAC.Margin = new Padding(5);
-            checkBox_UsingIOSMAC.Name = "checkBox_UsingIOSMAC";
-            checkBox_UsingIOSMAC.Size = new Size(145, 28);
-            checkBox_UsingIOSMAC.TabIndex = 52;
-            checkBox_UsingIOSMAC.Text = "IOS使用MAC";
-            checkBox_UsingIOSMAC.UseVisualStyleBackColor = true;
-            // 
-            // checkBox_SendSms
-            // 
-            checkBox_SendSms.AutoSize = true;
-            checkBox_SendSms.Location = new Point(1122, 109);
-            checkBox_SendSms.Margin = new Padding(5);
-            checkBox_SendSms.Name = "checkBox_SendSms";
-            checkBox_SendSms.Size = new Size(108, 28);
-            checkBox_SendSms.TabIndex = 45;
-            checkBox_SendSms.Text = "短信服务";
-            checkBox_SendSms.UseVisualStyleBackColor = true;
-            // 
-            // checkBox_UsingIOSIMEI
-            // 
-            checkBox_UsingIOSIMEI.AutoSize = true;
-            checkBox_UsingIOSIMEI.Location = new Point(725, 199);
-            checkBox_UsingIOSIMEI.Margin = new Padding(5);
-            checkBox_UsingIOSIMEI.Name = "checkBox_UsingIOSIMEI";
-            checkBox_UsingIOSIMEI.Size = new Size(140, 28);
-            checkBox_UsingIOSIMEI.TabIndex = 51;
-            checkBox_UsingIOSIMEI.Text = "IOS使用IMEI";
-            checkBox_UsingIOSIMEI.UseVisualStyleBackColor = true;
-            // 
-            // checkBox_UsingSystemDevs
-            // 
-            checkBox_UsingSystemDevs.AutoSize = true;
-            checkBox_UsingSystemDevs.Location = new Point(725, 170);
-            checkBox_UsingSystemDevs.Margin = new Padding(5);
-            checkBox_UsingSystemDevs.Name = "checkBox_UsingSystemDevs";
-            checkBox_UsingSystemDevs.Size = new Size(180, 28);
-            checkBox_UsingSystemDevs.TabIndex = 50;
-            checkBox_UsingSystemDevs.Text = "使用系统设备信息";
-            checkBox_UsingSystemDevs.UseVisualStyleBackColor = true;
-            // 
-            // checkBox_CheckIpRegion
-            // 
-            checkBox_CheckIpRegion.AutoSize = true;
-            checkBox_CheckIpRegion.Location = new Point(781, 310);
-            checkBox_CheckIpRegion.Margin = new Padding(5);
-            checkBox_CheckIpRegion.Name = "checkBox_CheckIpRegion";
-            checkBox_CheckIpRegion.Size = new Size(124, 28);
-            checkBox_CheckIpRegion.TabIndex = 47;
-            checkBox_CheckIpRegion.Text = "IP地区校验";
-            checkBox_CheckIpRegion.UseVisualStyleBackColor = true;
-            // 
-            // checkBox_NoneOS
-            // 
-            checkBox_NoneOS.AutoSize = true;
-            checkBox_NoneOS.Location = new Point(725, 255);
-            checkBox_NoneOS.Margin = new Padding(5);
-            checkBox_NoneOS.Name = "checkBox_NoneOS";
-            checkBox_NoneOS.Size = new Size(115, 28);
-            checkBox_NoneOS.TabIndex = 45;
-            checkBox_NoneOS.Text = "不回传OS";
-            checkBox_NoneOS.UseVisualStyleBackColor = true;
-            // 
-            // label19
-            // 
-            label19.AutoSize = true;
-            label19.Location = new Point(605, 256);
-            label19.Margin = new Padding(5, 0, 5, 0);
-            label19.Name = "label19";
-            label19.Size = new Size(99, 24);
-            label19.TabIndex = 42;
-            label19.Text = "分钟±30秒";
-            // 
-            // label18
-            // 
-            label18.AutoSize = true;
-            label18.Location = new Point(605, 218);
-            label18.Margin = new Padding(5, 0, 5, 0);
-            label18.Name = "label18";
-            label18.Size = new Size(99, 24);
-            label18.TabIndex = 41;
-            label18.Text = "分钟±30秒";
-            // 
-            // numericUpDown_ChildProcessResetIntervalMinutes
-            // 
-            numericUpDown_ChildProcessResetIntervalMinutes.Location = new Point(504, 248);
-            numericUpDown_ChildProcessResetIntervalMinutes.Margin = new Padding(5, 2, 5, 2);
-            numericUpDown_ChildProcessResetIntervalMinutes.Maximum = new decimal(new int[] { 10000, 0, 0, 0 });
-            numericUpDown_ChildProcessResetIntervalMinutes.Name = "numericUpDown_ChildProcessResetIntervalMinutes";
-            numericUpDown_ChildProcessResetIntervalMinutes.Size = new Size(92, 30);
-            numericUpDown_ChildProcessResetIntervalMinutes.TabIndex = 40;
-            // 
-            // label17
-            // 
-            label17.AutoSize = true;
-            label17.Location = new Point(347, 256);
-            label17.Margin = new Padding(5, 0, 5, 0);
-            label17.Name = "label17";
-            label17.Size = new Size(140, 24);
-            label17.TabIndex = 39;
-            label17.Text = "子进程重置间隔:";
-            // 
-            // numericUpDown_MainProcessResetIntervalMinutes
-            // 
-            numericUpDown_MainProcessResetIntervalMinutes.Location = new Point(504, 211);
-            numericUpDown_MainProcessResetIntervalMinutes.Margin = new Padding(5, 2, 5, 2);
-            numericUpDown_MainProcessResetIntervalMinutes.Maximum = new decimal(new int[] { 10000, 0, 0, 0 });
-            numericUpDown_MainProcessResetIntervalMinutes.Name = "numericUpDown_MainProcessResetIntervalMinutes";
-            numericUpDown_MainProcessResetIntervalMinutes.Size = new Size(92, 30);
-            numericUpDown_MainProcessResetIntervalMinutes.TabIndex = 38;
-            // 
-            // label16
-            // 
-            label16.AutoSize = true;
-            label16.Location = new Point(347, 218);
-            label16.Margin = new Padding(5, 0, 5, 0);
-            label16.Name = "label16";
-            label16.Size = new Size(140, 24);
-            label16.TabIndex = 37;
-            label16.Text = "主进程重置间隔:";
-            // 
-            // label15
-            // 
-            label15.AutoSize = true;
-            label15.Location = new Point(812, 107);
-            label15.Margin = new Padding(5, 0, 5, 0);
-            label15.Name = "label15";
-            label15.Size = new Size(97, 24);
-            label15.TabIndex = 36;
-            label15.Text = "进程数量:0";
-            // 
-            // checkBox_IsRealIp
-            // 
-            checkBox_IsRealIp.AutoSize = true;
-            checkBox_IsRealIp.Location = new Point(508, 310);
-            checkBox_IsRealIp.Margin = new Padding(5);
-            checkBox_IsRealIp.Name = "checkBox_IsRealIp";
-            checkBox_IsRealIp.Size = new Size(88, 28);
-            checkBox_IsRealIp.TabIndex = 35;
-            checkBox_IsRealIp.Text = "真实IP";
-            checkBox_IsRealIp.UseVisualStyleBackColor = true;
-            // 
-            // label11
-            // 
-            label11.AutoSize = true;
-            label11.Location = new Point(423, 147);
-            label11.Margin = new Padding(5, 0, 5, 0);
-            label11.Name = "label11";
-            label11.Size = new Size(86, 24);
-            label11.TabIndex = 31;
-            label11.Text = "任务倍速:";
-            // 
-            // numericUpDown_Multiple
-            // 
-            numericUpDown_Multiple.Location = new Point(523, 140);
-            numericUpDown_Multiple.Margin = new Padding(5, 2, 5, 2);
-            numericUpDown_Multiple.Name = "numericUpDown_Multiple";
-            numericUpDown_Multiple.Size = new Size(92, 30);
-            numericUpDown_Multiple.TabIndex = 32;
-            numericUpDown_Multiple.Value = new decimal(new int[] { 1, 0, 0, 0 });
-            // 
-            // checkBox_IsProxyMode
-            // 
-            checkBox_IsProxyMode.AutoSize = true;
-            checkBox_IsProxyMode.Location = new Point(382, 310);
-            checkBox_IsProxyMode.Margin = new Padding(5);
-            checkBox_IsProxyMode.Name = "checkBox_IsProxyMode";
-            checkBox_IsProxyMode.Size = new Size(108, 28);
-            checkBox_IsProxyMode.TabIndex = 28;
-            checkBox_IsProxyMode.Text = "代理模式";
-            checkBox_IsProxyMode.UseVisualStyleBackColor = true;
-            // 
-            // button1
-            // 
-            button1.Location = new Point(647, 101);
-            button1.Margin = new Padding(5);
-            button1.Name = "button1";
-            button1.Size = new Size(149, 55);
-            button1.TabIndex = 22;
-            button1.Text = "清除";
-            button1.UseVisualStyleBackColor = true;
-            button1.Click += button1_Click;
-            // 
-            // textBox_TaskApiUrl
-            // 
-            textBox_TaskApiUrl.Location = new Point(109, 61);
-            textBox_TaskApiUrl.Margin = new Padding(5, 2, 5, 2);
-            textBox_TaskApiUrl.Name = "textBox_TaskApiUrl";
-            textBox_TaskApiUrl.Size = new Size(526, 30);
-            textBox_TaskApiUrl.TabIndex = 21;
-            // 
-            // label10
-            // 
-            label10.AutoSize = true;
-            label10.Location = new Point(23, 70);
-            label10.Margin = new Padding(5, 0, 5, 0);
-            label10.Name = "label10";
-            label10.Size = new Size(82, 24);
-            label10.TabIndex = 20;
-            label10.Text = "任务接口";
-            // 
-            // label7
-            // 
-            label7.AutoSize = true;
-            label7.Location = new Point(812, 79);
-            label7.Margin = new Padding(5, 0, 5, 0);
-            label7.Name = "label7";
-            label7.Size = new Size(97, 24);
-            label7.TabIndex = 19;
-            label7.Text = "运行时间:0";
-            // 
-            // label5
-            // 
-            label5.AutoSize = true;
-            label5.Location = new Point(812, 53);
-            label5.Margin = new Padding(5, 0, 5, 0);
-            label5.Name = "label5";
-            label5.Size = new Size(97, 24);
-            label5.TabIndex = 16;
-            label5.Text = "提交数量:0";
-            // 
-            // label13
-            // 
-            label13.AutoSize = true;
-            label13.Location = new Point(280, 280);
-            label13.Margin = new Padding(5, 0, 5, 0);
-            label13.Name = "label13";
-            label13.Size = new Size(46, 24);
-            label13.TabIndex = 15;
-            label13.Text = "毫秒";
-            // 
-            // numericUpDown_TaskPullIntervalMs
-            // 
-            numericUpDown_TaskPullIntervalMs.Location = new Point(149, 185);
-            numericUpDown_TaskPullIntervalMs.Margin = new Padding(5, 2, 5, 2);
-            numericUpDown_TaskPullIntervalMs.Maximum = new decimal(new int[] { 30000, 0, 0, 0 });
-            numericUpDown_TaskPullIntervalMs.Minimum = new decimal(new int[] { 100, 0, 0, 0 });
-            numericUpDown_TaskPullIntervalMs.Name = "numericUpDown_TaskPullIntervalMs";
-            numericUpDown_TaskPullIntervalMs.Size = new Size(92, 30);
-            numericUpDown_TaskPullIntervalMs.TabIndex = 14;
-            numericUpDown_TaskPullIntervalMs.Value = new decimal(new int[] { 1000, 0, 0, 0 });
-            // 
-            // btnStartStop
-            // 
-            btnStartStop.Location = new Point(647, 24);
-            btnStartStop.Margin = new Padding(5);
-            btnStartStop.Name = "btnStartStop";
-            btnStartStop.Size = new Size(149, 70);
-            btnStartStop.TabIndex = 13;
-            btnStartStop.Text = "开始";
-            btnStartStop.UseVisualStyleBackColor = true;
-            btnStartStop.Click += btnStartStop_Click;
-            // 
-            // label9
-            // 
-            label9.AutoSize = true;
-            label9.Location = new Point(27, 280);
-            label9.Margin = new Padding(5, 0, 5, 0);
-            label9.Name = "label9";
-            label9.Size = new Size(111, 24);
-            label9.TabIndex = 0;
-            label9.Text = "UV执行间隔:";
-            // 
-            // numericUpDown_UvExecutionIntervalMs
-            // 
-            numericUpDown_UvExecutionIntervalMs.Location = new Point(149, 273);
-            numericUpDown_UvExecutionIntervalMs.Margin = new Padding(5, 2, 5, 2);
-            numericUpDown_UvExecutionIntervalMs.Maximum = new decimal(new int[] { 30000, 0, 0, 0 });
-            numericUpDown_UvExecutionIntervalMs.Minimum = new decimal(new int[] { 100, 0, 0, 0 });
-            numericUpDown_UvExecutionIntervalMs.Name = "numericUpDown_UvExecutionIntervalMs";
-            numericUpDown_UvExecutionIntervalMs.Size = new Size(92, 30);
-            numericUpDown_UvExecutionIntervalMs.TabIndex = 3;
-            numericUpDown_UvExecutionIntervalMs.Value = new decimal(new int[] { 1000, 0, 0, 0 });
-            // 
-            // label8
-            // 
-            label8.AutoSize = true;
-            label8.Location = new Point(52, 348);
-            label8.Margin = new Padding(5, 0, 5, 0);
-            label8.Name = "label8";
-            label8.Size = new Size(86, 24);
-            label8.TabIndex = 0;
-            label8.Text = "并发数量:";
-            // 
-            // numericUpDown_MaxConcurrency
-            // 
-            numericUpDown_MaxConcurrency.Location = new Point(149, 344);
-            numericUpDown_MaxConcurrency.Margin = new Padding(5, 2, 5, 2);
-            numericUpDown_MaxConcurrency.Maximum = new decimal(new int[] { 999, 0, 0, 0 });
-            numericUpDown_MaxConcurrency.Name = "numericUpDown_MaxConcurrency";
-            numericUpDown_MaxConcurrency.Size = new Size(92, 30);
-            numericUpDown_MaxConcurrency.TabIndex = 3;
-            numericUpDown_MaxConcurrency.Value = new decimal(new int[] { 1, 0, 0, 0 });
-            // 
-            // label6
-            // 
-            label6.AutoSize = true;
-            label6.Location = new Point(812, 26);
-            label6.Margin = new Padding(5, 0, 5, 0);
-            label6.Name = "label6";
-            label6.Size = new Size(63, 24);
-            label6.TabIndex = 4;
-            label6.Text = "label6";
-            // 
-            // label4
-            // 
-            label4.AutoSize = true;
-            label4.Location = new Point(52, 142);
-            label4.Margin = new Padding(5, 0, 5, 0);
-            label4.Name = "label4";
-            label4.Size = new Size(86, 24);
-            label4.TabIndex = 0;
-            label4.Text = "任务标识:";
-            // 
-            // textBox_TaskName
-            // 
-            textBox_TaskName.Location = new Point(149, 135);
-            textBox_TaskName.Margin = new Padding(5, 2, 5, 2);
-            textBox_TaskName.Name = "textBox_TaskName";
-            textBox_TaskName.Size = new Size(90, 30);
-            textBox_TaskName.TabIndex = 2;
-            // 
-            // label3
-            // 
-            label3.AutoSize = true;
-            label3.Location = new Point(287, 191);
-            label3.Margin = new Padding(5, 0, 5, 0);
-            label3.Name = "label3";
-            label3.Size = new Size(46, 24);
-            label3.TabIndex = 0;
-            label3.Text = "毫秒";
-            // 
-            // label2
-            // 
-            label2.AutoSize = true;
-            label2.Location = new Point(16, 193);
-            label2.Margin = new Padding(5, 0, 5, 0);
-            label2.Name = "label2";
-            label2.Size = new Size(122, 24);
-            label2.TabIndex = 0;
-            label2.Text = "任务获取间隔:";
-            // 
-            // textBox_ProxyIpUrl
-            // 
-            textBox_ProxyIpUrl.Location = new Point(109, 24);
-            textBox_ProxyIpUrl.Margin = new Padding(5, 2, 5, 2);
-            textBox_ProxyIpUrl.Name = "textBox_ProxyIpUrl";
-            textBox_ProxyIpUrl.Size = new Size(526, 30);
-            textBox_ProxyIpUrl.TabIndex = 1;
-            // 
-            // label1
-            // 
-            label1.AutoSize = true;
-            label1.Location = new Point(23, 31);
-            label1.Margin = new Padding(5, 0, 5, 0);
-            label1.Name = "label1";
-            label1.Size = new Size(86, 24);
-            label1.TabIndex = 0;
-            label1.Text = "代理接口:";
+            // checkBox_IsCheckIp
+            // 
+            checkBox_IsCheckIp.AutoSize = true;
+            checkBox_IsCheckIp.Location = new Point(577, 226);
+            checkBox_IsCheckIp.Margin = new Padding(5);
+            checkBox_IsCheckIp.Name = "checkBox_IsCheckIp";
+            checkBox_IsCheckIp.Size = new Size(74, 24);
+            checkBox_IsCheckIp.TabIndex = 51;
+            checkBox_IsCheckIp.Text = "检测IP";
+            checkBox_IsCheckIp.UseVisualStyleBackColor = true;
             // 
             // groupBox5
             // 
@@ -727,248 +149,792 @@
             groupBox5.Controls.Add(label21);
             groupBox5.Controls.Add(label20);
             groupBox5.Controls.Add(textBox_SmsName);
-            groupBox5.Location = new Point(970, 131);
+            groupBox5.Controls.Add(checkBox_SendSms);
+            groupBox5.Location = new Point(813, 13);
             groupBox5.Margin = new Padding(5);
             groupBox5.Name = "groupBox5";
             groupBox5.Padding = new Padding(5);
-            groupBox5.Size = new Size(323, 143);
-            groupBox5.TabIndex = 44;
+            groupBox5.Size = new Size(271, 130);
+            groupBox5.TabIndex = 45;
             groupBox5.TabStop = false;
             // 
             // button2
             // 
-            button2.Location = new Point(250, 26);
+            button2.Location = new Point(190, 29);
             button2.Margin = new Padding(5);
             button2.Name = "button2";
-            button2.Size = new Size(62, 34);
+            button2.Size = new Size(53, 28);
             button2.TabIndex = 51;
             button2.Text = "测试";
             button2.UseVisualStyleBackColor = true;
-            button2.Click += button2_Click;
             // 
             // label23
             // 
             label23.AutoSize = true;
-            label23.Location = new Point(14, 71);
+            label23.Location = new Point(23, 66);
             label23.Margin = new Padding(5, 0, 5, 0);
             label23.Name = "label23";
-            label23.Size = new Size(50, 24);
+            label23.Size = new Size(43, 20);
             label23.TabIndex = 50;
             label23.Text = "电话:";
             // 
             // textBox_SmsPhone
             // 
-            textBox_SmsPhone.Location = new Point(76, 62);
+            textBox_SmsPhone.Location = new Point(70, 60);
             textBox_SmsPhone.Margin = new Padding(5);
             textBox_SmsPhone.Name = "textBox_SmsPhone";
-            textBox_SmsPhone.Size = new Size(234, 30);
+            textBox_SmsPhone.Size = new Size(171, 27);
             textBox_SmsPhone.TabIndex = 49;
             // 
             // label22
             // 
             label22.AutoSize = true;
-            label22.Location = new Point(152, 107);
+            label22.Location = new Point(143, 95);
             label22.Margin = new Padding(5, 0, 5, 0);
             label22.Name = "label22";
-            label22.Size = new Size(122, 24);
+            label22.Size = new Size(103, 20);
             label22.TabIndex = 48;
             label22.Text = "分钟,发送短信";
             // 
             // numericUpDown_SendSmsTimeout
             // 
-            numericUpDown_SendSmsTimeout.Location = new Point(76, 98);
-            numericUpDown_SendSmsTimeout.Margin = new Padding(5, 2, 5, 2);
+            numericUpDown_SendSmsTimeout.Location = new Point(70, 90);
+            numericUpDown_SendSmsTimeout.Margin = new Padding(5, 4, 5, 4);
             numericUpDown_SendSmsTimeout.Maximum = new decimal(new int[] { 60, 0, 0, 0 });
             numericUpDown_SendSmsTimeout.Name = "numericUpDown_SendSmsTimeout";
-            numericUpDown_SendSmsTimeout.Size = new Size(72, 30);
+            numericUpDown_SendSmsTimeout.Size = new Size(66, 27);
             numericUpDown_SendSmsTimeout.TabIndex = 47;
             numericUpDown_SendSmsTimeout.Value = new decimal(new int[] { 5, 0, 0, 0 });
             // 
             // label21
             // 
             label21.AutoSize = true;
-            label21.Location = new Point(14, 107);
+            label21.Location = new Point(23, 95);
             label21.Margin = new Padding(5, 0, 5, 0);
             label21.Name = "label21";
-            label21.Size = new Size(50, 24);
+            label21.Size = new Size(43, 20);
             label21.TabIndex = 46;
             label21.Text = "超时:";
             // 
             // label20
             // 
             label20.AutoSize = true;
-            label20.Location = new Point(14, 35);
+            label20.Location = new Point(23, 35);
             label20.Margin = new Padding(5, 0, 5, 0);
             label20.Name = "label20";
-            label20.Size = new Size(50, 24);
+            label20.Size = new Size(43, 20);
             label20.TabIndex = 44;
             label20.Text = "名称:";
             // 
             // textBox_SmsName
             // 
-            textBox_SmsName.Location = new Point(76, 26);
+            textBox_SmsName.Location = new Point(70, 30);
             textBox_SmsName.Margin = new Padding(5);
             textBox_SmsName.Name = "textBox_SmsName";
-            textBox_SmsName.Size = new Size(162, 30);
+            textBox_SmsName.Size = new Size(115, 27);
             textBox_SmsName.TabIndex = 43;
             // 
-            // LogTextBox
+            // checkBox_SendSms
             // 
-            LogTextBox.Dock = DockStyle.Fill;
-            LogTextBox.Location = new Point(5, 25);
-            LogTextBox.Margin = new Padding(5, 2, 5, 2);
-            LogTextBox.Multiline = true;
-            LogTextBox.Name = "LogTextBox";
-            LogTextBox.ScrollBars = ScrollBars.Both;
-            LogTextBox.Size = new Size(757, 391);
-            LogTextBox.TabIndex = 3;
-            LogTextBox.WordWrap = false;
+            checkBox_SendSms.AutoSize = true;
+            checkBox_SendSms.Location = new Point(11, 1);
+            checkBox_SendSms.Margin = new Padding(5);
+            checkBox_SendSms.Name = "checkBox_SendSms";
+            checkBox_SendSms.Size = new Size(91, 24);
+            checkBox_SendSms.TabIndex = 45;
+            checkBox_SendSms.Text = "短信服务";
+            checkBox_SendSms.UseVisualStyleBackColor = true;
             // 
-            // groupBox3
+            // checkBox_IsRealIp
             // 
-            groupBox3.Controls.Add(LogTextBox);
-            groupBox3.Dock = DockStyle.Fill;
-            groupBox3.Location = new Point(542, 462);
-            groupBox3.Margin = new Padding(5, 2, 5, 2);
-            groupBox3.Name = "groupBox3";
-            groupBox3.Padding = new Padding(5, 2, 5, 2);
-            groupBox3.Size = new Size(767, 418);
-            groupBox3.TabIndex = 4;
-            groupBox3.TabStop = false;
-            groupBox3.Text = "日志";
+            checkBox_IsRealIp.AutoSize = true;
+            checkBox_IsRealIp.Location = new Point(577, 199);
+            checkBox_IsRealIp.Margin = new Padding(5);
+            checkBox_IsRealIp.Name = "checkBox_IsRealIp";
+            checkBox_IsRealIp.Size = new Size(74, 24);
+            checkBox_IsRealIp.TabIndex = 35;
+            checkBox_IsRealIp.Text = "真实IP";
+            checkBox_IsRealIp.UseVisualStyleBackColor = true;
             // 
-            // LogDetailTextBox
+            // label11
             // 
-            LogDetailTextBox.Dock = DockStyle.Fill;
-            LogDetailTextBox.Location = new Point(5, 25);
-            LogDetailTextBox.Margin = new Padding(5, 2, 5, 2);
-            LogDetailTextBox.Multiline = true;
-            LogDetailTextBox.Name = "LogDetailTextBox";
-            LogDetailTextBox.ScrollBars = ScrollBars.Both;
-            LogDetailTextBox.Size = new Size(1299, 271);
-            LogDetailTextBox.TabIndex = 3;
+            label11.AutoSize = true;
+            label11.Location = new Point(319, 124);
+            label11.Margin = new Padding(5, 0, 5, 0);
+            label11.Name = "label11";
+            label11.Size = new Size(73, 20);
+            label11.TabIndex = 31;
+            label11.Text = "任务倍速:";
+            // 
+            // numericUpDown_Multiple
+            // 
+            numericUpDown_Multiple.Location = new Point(393, 119);
+            numericUpDown_Multiple.Margin = new Padding(5, 4, 5, 4);
+            numericUpDown_Multiple.Name = "numericUpDown_Multiple";
+            numericUpDown_Multiple.Size = new Size(86, 27);
+            numericUpDown_Multiple.TabIndex = 32;
+            numericUpDown_Multiple.Value = new decimal(new int[] { 1, 0, 0, 0 });
+            // 
+            // buttonClear
+            // 
+            buttonClear.Font = new Font("宋体", 9F);
+            buttonClear.ForeColor = Color.Red;
+            buttonClear.Location = new Point(488, 83);
+            buttonClear.Margin = new Padding(5);
+            buttonClear.Name = "buttonClear";
+            buttonClear.Size = new Size(118, 39);
+            buttonClear.TabIndex = 22;
+            buttonClear.Text = "清除";
+            buttonClear.UseVisualStyleBackColor = true;
+            // 
+            // textBox_TaskApiUrl
+            // 
+            textBox_TaskApiUrl.Location = new Point(122, 54);
+            textBox_TaskApiUrl.Margin = new Padding(5, 4, 5, 4);
+            textBox_TaskApiUrl.Name = "textBox_TaskApiUrl";
+            textBox_TaskApiUrl.Size = new Size(355, 27);
+            textBox_TaskApiUrl.TabIndex = 21;
+            textBox_TaskApiUrl.Text = "http://117.21.200.148/client-v5.php";
+            // 
+            // label10
+            // 
+            label10.AutoSize = true;
+            label10.Location = new Point(48, 59);
+            label10.Margin = new Padding(5, 0, 5, 0);
+            label10.Name = "label10";
+            label10.Size = new Size(69, 20);
+            label10.TabIndex = 20;
+            label10.Text = "任务接口";
+            // 
+            // label13
+            // 
+            label13.AutoSize = true;
+            label13.Location = new Point(215, 189);
+            label13.Margin = new Padding(5, 0, 5, 0);
+            label13.Name = "label13";
+            label13.Size = new Size(39, 20);
+            label13.TabIndex = 15;
+            label13.Text = "毫秒";
+            // 
+            // numericUpDown_TaskPullInterval
+            // 
+            numericUpDown_TaskPullInterval.Location = new Point(122, 151);
+            numericUpDown_TaskPullInterval.Margin = new Padding(5, 4, 5, 4);
+            numericUpDown_TaskPullInterval.Maximum = new decimal(new int[] { 60000, 0, 0, 0 });
+            numericUpDown_TaskPullInterval.Name = "numericUpDown_TaskPullInterval";
+            numericUpDown_TaskPullInterval.Size = new Size(86, 27);
+            numericUpDown_TaskPullInterval.TabIndex = 14;
+            numericUpDown_TaskPullInterval.Value = new decimal(new int[] { 1000, 0, 0, 0 });
+            // 
+            // btnStartStop
+            // 
+            btnStartStop.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            btnStartStop.Location = new Point(488, 18);
+            btnStartStop.Margin = new Padding(5);
+            btnStartStop.Name = "btnStartStop";
+            btnStartStop.Size = new Size(118, 58);
+            btnStartStop.TabIndex = 13;
+            btnStartStop.Text = "开始";
+            btnStartStop.UseVisualStyleBackColor = true;
+            btnStartStop.Click += btnStartStop_Click;
+            // 
+            // label12
+            // 
+            label12.AutoSize = true;
+            label12.Location = new Point(48, 221);
+            label12.Margin = new Padding(5, 0, 5, 0);
+            label12.Name = "label12";
+            label12.Size = new Size(69, 20);
+            label12.TabIndex = 9;
+            label12.Text = "并发数量";
+            // 
+            // numericUpDown_MaxConcurrency
+            // 
+            numericUpDown_MaxConcurrency.Location = new Point(122, 216);
+            numericUpDown_MaxConcurrency.Margin = new Padding(5, 4, 5, 4);
+            numericUpDown_MaxConcurrency.Name = "numericUpDown_MaxConcurrency";
+            numericUpDown_MaxConcurrency.Size = new Size(86, 27);
+            numericUpDown_MaxConcurrency.TabIndex = 10;
+            numericUpDown_MaxConcurrency.Value = new decimal(new int[] { 1, 0, 0, 0 });
+            // 
+            // label90
+            // 
+            label90.AutoSize = true;
+            label90.Location = new Point(27, 189);
+            label90.Margin = new Padding(5, 0, 5, 0);
+            label90.Name = "label90";
+            label90.Size = new Size(90, 20);
+            label90.TabIndex = 0;
+            label90.Text = "UV执行间隔";
+            // 
+            // numericUpDown_UvExecutionInterval
+            // 
+            numericUpDown_UvExecutionInterval.Location = new Point(122, 184);
+            numericUpDown_UvExecutionInterval.Margin = new Padding(5, 4, 5, 4);
+            numericUpDown_UvExecutionInterval.Maximum = new decimal(new int[] { 30000, 0, 0, 0 });
+            numericUpDown_UvExecutionInterval.Name = "numericUpDown_UvExecutionInterval";
+            numericUpDown_UvExecutionInterval.Size = new Size(86, 27);
+            numericUpDown_UvExecutionInterval.TabIndex = 3;
+            numericUpDown_UvExecutionInterval.Value = new decimal(new int[] { 1000, 0, 0, 0 });
+            // 
+            // label4
+            // 
+            label4.AutoSize = true;
+            label4.Location = new Point(48, 124);
+            label4.Margin = new Padding(5, 0, 5, 0);
+            label4.Name = "label4";
+            label4.Size = new Size(69, 20);
+            label4.TabIndex = 0;
+            label4.Text = "任务标识";
+            // 
+            // textBox_TaskName
+            // 
+            textBox_TaskName.Location = new Point(122, 119);
+            textBox_TaskName.Margin = new Padding(5, 4, 5, 4);
+            textBox_TaskName.Name = "textBox_TaskName";
+            textBox_TaskName.Size = new Size(129, 27);
+            textBox_TaskName.TabIndex = 2;
+            // 
+            // toolStripStatusLabel6
+            // 
+            toolStripStatusLabel6.Name = "toolStripStatusLabel6";
+            toolStripStatusLabel6.Size = new Size(82, 20);
+            toolStripStatusLabel6.Text = "点击总量:0";
+            // 
+            // toolStripStatusLabel4
+            // 
+            toolStripStatusLabel4.Name = "toolStripStatusLabel4";
+            toolStripStatusLabel4.Size = new Size(82, 20);
+            toolStripStatusLabel4.Text = "提交总量:0";
+            // 
+            // toolStripStatusLabel3
+            // 
+            toolStripStatusLabel3.Name = "toolStripStatusLabel3";
+            toolStripStatusLabel3.Size = new Size(82, 20);
+            toolStripStatusLabel3.Text = "请求总量:0";
+            // 
+            // toolStripStatusLabel2
+            // 
+            toolStripStatusLabel2.Name = "toolStripStatusLabel2";
+            toolStripStatusLabel2.Size = new Size(82, 20);
+            toolStripStatusLabel2.Text = "活动进程:0";
+            // 
+            // toolStripStatusLabel1
+            // 
+            toolStripStatusLabel1.Name = "toolStripStatusLabel1";
+            toolStripStatusLabel1.Size = new Size(52, 20);
+            toolStripStatusLabel1.Text = "CPU:0";
             // 
             // groupBox4
             // 
-            groupBox4.Controls.Add(LogDetailTextBox);
-            groupBox4.Dock = DockStyle.Bottom;
-            groupBox4.Location = new Point(0, 880);
-            groupBox4.Margin = new Padding(5, 2, 5, 2);
+            groupBox4.Dock = DockStyle.Fill;
+            groupBox4.Location = new Point(0, 369);
+            groupBox4.Margin = new Padding(5, 4, 5, 4);
             groupBox4.Name = "groupBox4";
-            groupBox4.Padding = new Padding(5, 2, 5, 2);
-            groupBox4.Size = new Size(1309, 298);
-            groupBox4.TabIndex = 4;
+            groupBox4.Padding = new Padding(5, 4, 5, 4);
+            groupBox4.Size = new Size(1111, 447);
+            groupBox4.TabIndex = 10;
             groupBox4.TabStop = false;
-            groupBox4.Text = "详细日志";
+            groupBox4.Text = "日志";
+            // 
+            // statusStrip1
+            // 
+            statusStrip1.ImageScalingSize = new Size(20, 20);
+            statusStrip1.Items.AddRange(new ToolStripItem[] { toolStripStatusLabel1, lblStatus, toolStripStatusLabel2, toolStripStatusLabel3, toolStripStatusLabel4, toolStripStatusLabel5, toolStripStatusLabel6 });
+            statusStrip1.Location = new Point(0, 816);
+            statusStrip1.Name = "statusStrip1";
+            statusStrip1.Padding = new Padding(1, 0, 18, 0);
+            statusStrip1.Size = new Size(1111, 26);
+            statusStrip1.TabIndex = 12;
+            statusStrip1.Text = "statusStrip1";
+            // 
+            // lblStatus
+            // 
+            lblStatus.Name = "lblStatus";
+            lblStatus.Size = new Size(137, 20);
+            lblStatus.Text = "任务状态:Stopped";
+            // 
+            // label3
+            // 
+            label3.AutoSize = true;
+            label3.Location = new Point(215, 156);
+            label3.Margin = new Padding(5, 0, 5, 0);
+            label3.Name = "label3";
+            label3.Size = new Size(39, 20);
+            label3.TabIndex = 0;
+            label3.Text = "毫秒";
+            // 
+            // radioButton_UseLocalDev
+            // 
+            radioButton_UseLocalDev.AutoSize = true;
+            radioButton_UseLocalDev.Location = new Point(188, 27);
+            radioButton_UseLocalDev.Margin = new Padding(5);
+            radioButton_UseLocalDev.Name = "radioButton_UseLocalDev";
+            radioButton_UseLocalDev.Size = new Size(75, 24);
+            radioButton_UseLocalDev.TabIndex = 56;
+            radioButton_UseLocalDev.TabStop = true;
+            radioButton_UseLocalDev.Text = "本地库";
+            radioButton_UseLocalDev.UseVisualStyleBackColor = true;
+            // 
+            // radioButton_UsingRealDev
+            // 
+            radioButton_UsingRealDev.AutoSize = true;
+            radioButton_UsingRealDev.Location = new Point(105, 27);
+            radioButton_UsingRealDev.Margin = new Padding(5);
+            radioButton_UsingRealDev.Name = "radioButton_UsingRealDev";
+            radioButton_UsingRealDev.Size = new Size(75, 24);
+            radioButton_UsingRealDev.TabIndex = 55;
+            radioButton_UsingRealDev.TabStop = true;
+            radioButton_UsingRealDev.Text = "真机库";
+            radioButton_UsingRealDev.UseVisualStyleBackColor = true;
+            // 
+            // radioButton_UseSystemDev
+            // 
+            radioButton_UseSystemDev.AutoSize = true;
+            radioButton_UseSystemDev.Checked = true;
+            radioButton_UseSystemDev.Location = new Point(23, 27);
+            radioButton_UseSystemDev.Margin = new Padding(5);
+            radioButton_UseSystemDev.Name = "radioButton_UseSystemDev";
+            radioButton_UseSystemDev.Size = new Size(75, 24);
+            radioButton_UseSystemDev.TabIndex = 54;
+            radioButton_UseSystemDev.TabStop = true;
+            radioButton_UseSystemDev.Text = "系统库";
+            radioButton_UseSystemDev.UseVisualStyleBackColor = true;
+            // 
+            // textBox_ProxyIpUrl
+            // 
+            textBox_ProxyIpUrl.Location = new Point(122, 19);
+            textBox_ProxyIpUrl.Margin = new Padding(5, 4, 5, 4);
+            textBox_ProxyIpUrl.Name = "textBox_ProxyIpUrl";
+            textBox_ProxyIpUrl.Size = new Size(355, 27);
+            textBox_ProxyIpUrl.TabIndex = 1;
+            // 
+            // label1
+            // 
+            label1.AutoSize = true;
+            label1.Location = new Point(61, 25);
+            label1.Margin = new Padding(5, 0, 5, 0);
+            label1.Name = "label1";
+            label1.Size = new Size(56, 20);
+            label1.TabIndex = 0;
+            label1.Text = "代理IP:";
+            // 
+            // groupBox6
+            // 
+            groupBox6.Controls.Add(radioButton_UseLocalDev);
+            groupBox6.Controls.Add(radioButton_UsingRealDev);
+            groupBox6.Controls.Add(radioButton_UseSystemDev);
+            groupBox6.Location = new Point(813, 151);
+            groupBox6.Margin = new Padding(5);
+            groupBox6.Name = "groupBox6";
+            groupBox6.Padding = new Padding(5);
+            groupBox6.Size = new Size(271, 59);
+            groupBox6.TabIndex = 52;
+            groupBox6.TabStop = false;
+            groupBox6.Text = "设备库";
+            // 
+            // label2
+            // 
+            label2.AutoSize = true;
+            label2.Location = new Point(18, 156);
+            label2.Margin = new Padding(5, 0, 5, 0);
+            label2.Name = "label2";
+            label2.Size = new Size(99, 20);
+            label2.TabIndex = 0;
+            label2.Text = "获取任务间隔";
+            // 
+            // label25
+            // 
+            label25.AutoSize = true;
+            label25.Location = new Point(482, 290);
+            label25.Margin = new Padding(5, 0, 5, 0);
+            label25.Name = "label25";
+            label25.Size = new Size(24, 20);
+            label25.TabIndex = 97;
+            label25.Text = "秒";
+            // 
+            // label27
+            // 
+            label27.AutoSize = true;
+            label27.Location = new Point(304, 290);
+            label27.Margin = new Padding(5, 0, 5, 0);
+            label27.Name = "label27";
+            label27.Size = new Size(87, 20);
+            label27.TabIndex = 95;
+            label27.Text = "Ip有效时长:";
+            // 
+            // numericUpDown_IpValidityDuration
+            // 
+            numericUpDown_IpValidityDuration.Location = new Point(392, 285);
+            numericUpDown_IpValidityDuration.Margin = new Padding(5, 4, 5, 4);
+            numericUpDown_IpValidityDuration.Name = "numericUpDown_IpValidityDuration";
+            numericUpDown_IpValidityDuration.Size = new Size(86, 27);
+            numericUpDown_IpValidityDuration.TabIndex = 96;
+            numericUpDown_IpValidityDuration.Value = new decimal(new int[] { 1, 0, 0, 0 });
+            // 
+            // label24
+            // 
+            label24.AutoSize = true;
+            label24.Location = new Point(483, 256);
+            label24.Margin = new Padding(5, 0, 5, 0);
+            label24.Name = "label24";
+            label24.Size = new Size(24, 20);
+            label24.TabIndex = 94;
+            label24.Text = "秒";
+            // 
+            // label16
+            // 
+            label16.AutoSize = true;
+            label16.Location = new Point(288, 256);
+            label16.Margin = new Padding(5, 0, 5, 0);
+            label16.Name = "label16";
+            label16.Size = new Size(103, 20);
+            label16.TabIndex = 92;
+            label16.Text = "页面加载超时:";
+            // 
+            // numericUpDown_PageLoadTimeout
+            // 
+            numericUpDown_PageLoadTimeout.Location = new Point(393, 251);
+            numericUpDown_PageLoadTimeout.Margin = new Padding(5, 4, 5, 4);
+            numericUpDown_PageLoadTimeout.Name = "numericUpDown_PageLoadTimeout";
+            numericUpDown_PageLoadTimeout.Size = new Size(86, 27);
+            numericUpDown_PageLoadTimeout.TabIndex = 93;
+            numericUpDown_PageLoadTimeout.Value = new decimal(new int[] { 1, 0, 0, 0 });
+            // 
+            // label_start
+            // 
+            label_start.AutoSize = true;
+            label_start.Location = new Point(618, 44);
+            label_start.Margin = new Padding(5, 0, 5, 0);
+            label_start.Name = "label_start";
+            label_start.Size = new Size(82, 20);
+            label_start.TabIndex = 85;
+            label_start.Text = "提交数量:0";
+            // 
+            // label_click
+            // 
+            label_click.AutoSize = true;
+            label_click.Location = new Point(618, 95);
+            label_click.Margin = new Padding(5, 0, 5, 0);
+            label_click.Name = "label_click";
+            label_click.Size = new Size(82, 20);
+            label_click.TabIndex = 84;
+            label_click.Text = "点击数量:0";
+            // 
+            // groupBox2
+            // 
+            groupBox2.Controls.Add(checkBox_IsOsrMode);
+            groupBox2.Controls.Add(label25);
+            groupBox2.Controls.Add(label27);
+            groupBox2.Controls.Add(numericUpDown_IpValidityDuration);
+            groupBox2.Controls.Add(label24);
+            groupBox2.Controls.Add(label16);
+            groupBox2.Controls.Add(numericUpDown_PageLoadTimeout);
+            groupBox2.Controls.Add(label_start);
+            groupBox2.Controls.Add(label_click);
+            groupBox2.Controls.Add(label_dsp);
+            groupBox2.Controls.Add(label_time);
+            groupBox2.Controls.Add(label_request);
+            groupBox2.Controls.Add(linkLabel1);
+            groupBox2.Controls.Add(checkBox_IsDetailLog);
+            groupBox2.Controls.Add(textBox_DevApiUrl);
+            groupBox2.Controls.Add(label14);
+            groupBox2.Controls.Add(label19);
+            groupBox2.Controls.Add(label18);
+            groupBox2.Controls.Add(numericUpDown_ChildProcessResetIntervalMinutes);
+            groupBox2.Controls.Add(label17);
+            groupBox2.Controls.Add(numericUpDown_MainProcessResetIntervalMinutes);
+            groupBox2.Controls.Add(label26);
+            groupBox2.Controls.Add(checkBox_IsProxyMode);
+            groupBox2.Controls.Add(checkBox_IsHiddenMode);
+            groupBox2.Controls.Add(checkBox_IsCheckIp);
+            groupBox2.Controls.Add(groupBox5);
+            groupBox2.Controls.Add(checkBox_IsRealIp);
+            groupBox2.Controls.Add(label11);
+            groupBox2.Controls.Add(numericUpDown_Multiple);
+            groupBox2.Controls.Add(buttonClear);
+            groupBox2.Controls.Add(textBox_TaskApiUrl);
+            groupBox2.Controls.Add(label10);
+            groupBox2.Controls.Add(label13);
+            groupBox2.Controls.Add(numericUpDown_TaskPullInterval);
+            groupBox2.Controls.Add(btnStartStop);
+            groupBox2.Controls.Add(label12);
+            groupBox2.Controls.Add(numericUpDown_MaxConcurrency);
+            groupBox2.Controls.Add(label90);
+            groupBox2.Controls.Add(numericUpDown_UvExecutionInterval);
+            groupBox2.Controls.Add(label4);
+            groupBox2.Controls.Add(textBox_TaskName);
+            groupBox2.Controls.Add(label3);
+            groupBox2.Controls.Add(label2);
+            groupBox2.Controls.Add(textBox_ProxyIpUrl);
+            groupBox2.Controls.Add(label1);
+            groupBox2.Controls.Add(groupBox6);
+            groupBox2.Dock = DockStyle.Top;
+            groupBox2.Location = new Point(0, 0);
+            groupBox2.Margin = new Padding(5, 4, 5, 4);
+            groupBox2.Name = "groupBox2";
+            groupBox2.Padding = new Padding(5, 4, 5, 4);
+            groupBox2.Size = new Size(1111, 369);
+            groupBox2.TabIndex = 9;
+            groupBox2.TabStop = false;
+            groupBox2.Text = "设置";
+            // 
+            // checkBox_IsOsrMode
+            // 
+            checkBox_IsOsrMode.AutoSize = true;
+            checkBox_IsOsrMode.Location = new Point(577, 285);
+            checkBox_IsOsrMode.Margin = new Padding(5, 6, 5, 6);
+            checkBox_IsOsrMode.Name = "checkBox_IsOsrMode";
+            checkBox_IsOsrMode.Size = new Size(86, 24);
+            checkBox_IsOsrMode.TabIndex = 98;
+            checkBox_IsOsrMode.Text = "Osr模式";
+            checkBox_IsOsrMode.UseVisualStyleBackColor = true;
+            // 
+            // label_dsp
+            // 
+            label_dsp.AutoSize = true;
+            label_dsp.Location = new Point(618, 71);
+            label_dsp.Margin = new Padding(5, 0, 5, 0);
+            label_dsp.Name = "label_dsp";
+            label_dsp.Size = new Size(82, 20);
+            label_dsp.TabIndex = 83;
+            label_dsp.Text = "曝光数量:0";
+            // 
+            // label_time
+            // 
+            label_time.AutoSize = true;
+            label_time.Location = new Point(618, 121);
+            label_time.Margin = new Padding(5, 0, 5, 0);
+            label_time.Name = "label_time";
+            label_time.Size = new Size(82, 20);
+            label_time.TabIndex = 82;
+            label_time.Text = "运行时间:0";
+            // 
+            // label_request
+            // 
+            label_request.AutoSize = true;
+            label_request.Location = new Point(618, 19);
+            label_request.Margin = new Padding(5, 0, 5, 0);
+            label_request.Name = "label_request";
+            label_request.Size = new Size(82, 20);
+            label_request.TabIndex = 81;
+            label_request.Text = "请求数量:0";
+            // 
+            // linkLabel1
+            // 
+            linkLabel1.AutoSize = true;
+            linkLabel1.Location = new Point(815, 217);
+            linkLabel1.Margin = new Padding(4, 0, 4, 0);
+            linkLabel1.Name = "linkLabel1";
+            linkLabel1.Size = new Size(69, 20);
+            linkLabel1.TabIndex = 80;
+            linkLabel1.TabStop = true;
+            linkLabel1.Text = "开机启动";
+            // 
+            // checkBox_IsDetailLog
+            // 
+            checkBox_IsDetailLog.AutoSize = true;
+            checkBox_IsDetailLog.Location = new Point(577, 253);
+            checkBox_IsDetailLog.Margin = new Padding(5);
+            checkBox_IsDetailLog.Name = "checkBox_IsDetailLog";
+            checkBox_IsDetailLog.Size = new Size(91, 24);
+            checkBox_IsDetailLog.TabIndex = 75;
+            checkBox_IsDetailLog.Text = "详细日志";
+            checkBox_IsDetailLog.UseVisualStyleBackColor = true;
+            // 
+            // textBox_DevApiUrl
+            // 
+            textBox_DevApiUrl.Location = new Point(122, 88);
+            textBox_DevApiUrl.Margin = new Padding(5, 4, 5, 4);
+            textBox_DevApiUrl.Name = "textBox_DevApiUrl";
+            textBox_DevApiUrl.Size = new Size(355, 27);
+            textBox_DevApiUrl.TabIndex = 74;
+            textBox_DevApiUrl.Text = "http://117.21.200.18:9000/api/getdev.php";
+            // 
+            // label14
+            // 
+            label14.AutoSize = true;
+            label14.Location = new Point(48, 92);
+            label14.Margin = new Padding(5, 0, 5, 0);
+            label14.Name = "label14";
+            label14.Size = new Size(69, 20);
+            label14.TabIndex = 73;
+            label14.Text = "设备接口";
+            // 
+            // label19
+            // 
+            label19.AutoSize = true;
+            label19.Location = new Point(483, 154);
+            label19.Margin = new Padding(5, 0, 5, 0);
+            label19.Name = "label19";
+            label19.Size = new Size(83, 20);
+            label19.TabIndex = 65;
+            label19.Text = "分钟±30秒";
+            // 
+            // label18
+            // 
+            label18.AutoSize = true;
+            label18.Location = new Point(483, 189);
+            label18.Margin = new Padding(5, 0, 5, 0);
+            label18.Name = "label18";
+            label18.Size = new Size(83, 20);
+            label18.TabIndex = 64;
+            label18.Text = "分钟±30秒";
+            // 
+            // numericUpDown_ChildProcessResetIntervalMinutes
+            // 
+            numericUpDown_ChildProcessResetIntervalMinutes.Location = new Point(393, 151);
+            numericUpDown_ChildProcessResetIntervalMinutes.Margin = new Padding(5, 4, 5, 4);
+            numericUpDown_ChildProcessResetIntervalMinutes.Maximum = new decimal(new int[] { 1440, 0, 0, 0 });
+            numericUpDown_ChildProcessResetIntervalMinutes.Name = "numericUpDown_ChildProcessResetIntervalMinutes";
+            numericUpDown_ChildProcessResetIntervalMinutes.Size = new Size(86, 27);
+            numericUpDown_ChildProcessResetIntervalMinutes.TabIndex = 63;
+            // 
+            // label17
+            // 
+            label17.AutoSize = true;
+            label17.Location = new Point(303, 156);
+            label17.Margin = new Padding(5, 0, 5, 0);
+            label17.Name = "label17";
+            label17.Size = new Size(88, 20);
+            label17.TabIndex = 62;
+            label17.Text = "子进程重置:";
+            // 
+            // numericUpDown_MainProcessResetIntervalMinutes
+            // 
+            numericUpDown_MainProcessResetIntervalMinutes.Location = new Point(393, 184);
+            numericUpDown_MainProcessResetIntervalMinutes.Margin = new Padding(5, 4, 5, 4);
+            numericUpDown_MainProcessResetIntervalMinutes.Maximum = new decimal(new int[] { 1440, 0, 0, 0 });
+            numericUpDown_MainProcessResetIntervalMinutes.Name = "numericUpDown_MainProcessResetIntervalMinutes";
+            numericUpDown_MainProcessResetIntervalMinutes.Size = new Size(86, 27);
+            numericUpDown_MainProcessResetIntervalMinutes.TabIndex = 61;
+            // 
+            // label26
+            // 
+            label26.AutoSize = true;
+            label26.Location = new Point(303, 189);
+            label26.Margin = new Padding(5, 0, 5, 0);
+            label26.Name = "label26";
+            label26.Size = new Size(88, 20);
+            label26.TabIndex = 60;
+            label26.Text = "主进程重置:";
+            // 
+            // checkBox_IsProxyMode
+            // 
+            checkBox_IsProxyMode.AutoSize = true;
+            checkBox_IsProxyMode.Location = new Point(577, 171);
+            checkBox_IsProxyMode.Margin = new Padding(5);
+            checkBox_IsProxyMode.Name = "checkBox_IsProxyMode";
+            checkBox_IsProxyMode.Size = new Size(91, 24);
+            checkBox_IsProxyMode.TabIndex = 59;
+            checkBox_IsProxyMode.Text = "代理模式";
+            checkBox_IsProxyMode.UseVisualStyleBackColor = true;
             // 
             // MainForm
             // 
-            AutoScaleDimensions = new SizeF(144F, 144F);
+            AutoScaleDimensions = new SizeF(120F, 120F);
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(1309, 1178);
-            Controls.Add(groupBox3);
-            Controls.Add(groupBox1);
-            Controls.Add(groupBox2);
+            ClientSize = new Size(1111, 842);
             Controls.Add(groupBox4);
-            Margin = new Padding(5, 2, 5, 2);
+            Controls.Add(statusStrip1);
+            Controls.Add(groupBox2);
+            Margin = new Padding(5, 4, 5, 4);
             Name = "MainForm";
             StartPosition = FormStartPosition.CenterScreen;
-            Text = "优化测试-曝光";
-            FormClosed += MainForm_FormClosed;
+            Text = "DOUYU-";
             Load += MainForm_Load;
-            groupBox1.ResumeLayout(false);
-            groupBox2.ResumeLayout(false);
-            groupBox2.PerformLayout();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_ChannelCapacity).EndInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_IpValidityDuration).EndInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_ChildProcessResetIntervalMinutes).EndInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_MainProcessResetIntervalMinutes).EndInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_Multiple).EndInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_TaskPullIntervalMs).EndInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_UvExecutionIntervalMs).EndInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_MaxConcurrency).EndInit();
             groupBox5.ResumeLayout(false);
             groupBox5.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_SendSmsTimeout).EndInit();
-            groupBox3.ResumeLayout(false);
-            groupBox3.PerformLayout();
-            groupBox4.ResumeLayout(false);
-            groupBox4.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_Multiple).EndInit();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_TaskPullInterval).EndInit();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_MaxConcurrency).EndInit();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_UvExecutionInterval).EndInit();
+            statusStrip1.ResumeLayout(false);
+            statusStrip1.PerformLayout();
+            groupBox6.ResumeLayout(false);
+            groupBox6.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_IpValidityDuration).EndInit();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_PageLoadTimeout).EndInit();
+            groupBox2.ResumeLayout(false);
+            groupBox2.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_ChildProcessResetIntervalMinutes).EndInit();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_MainProcessResetIntervalMinutes).EndInit();
             ResumeLayout(false);
+            PerformLayout();
 
         }
 
         #endregion
-        private System.Windows.Forms.GroupBox groupBox1;
-        private System.Windows.Forms.ListView taskInfoListView;
-        private System.Windows.Forms.ColumnHeader columnHeader1;
-        private System.Windows.Forms.ColumnHeader columnHeader2;
-        private System.Windows.Forms.ColumnHeader columnHeader3;
-        private System.Windows.Forms.ColumnHeader columnHeader4;
-        private System.Windows.Forms.ColumnHeader columnHeader5;
-        private System.Windows.Forms.ColumnHeader columnHeader6;
-        private System.Windows.Forms.GroupBox groupBox2;
-        private System.Windows.Forms.TextBox textBox_ProxyIpUrl;
-        private System.Windows.Forms.Label label1;
-        private System.Windows.Forms.TextBox LogTextBox;
-        private System.Windows.Forms.GroupBox groupBox3;
-        private System.Windows.Forms.Label label3;
-        private System.Windows.Forms.Label label2;
-        private System.Windows.Forms.Label label4;
-        private System.Windows.Forms.TextBox textBox_TaskName;
-        private System.Windows.Forms.TextBox LogDetailTextBox;
-        private System.Windows.Forms.GroupBox groupBox4;
-        private System.Windows.Forms.Label label6;
-        private System.Windows.Forms.Label label8;
-        private System.Windows.Forms.NumericUpDown numericUpDown_MaxConcurrency;
-        private System.Windows.Forms.Label label9;
-        private System.Windows.Forms.NumericUpDown numericUpDown_UvExecutionIntervalMs;
-        private System.Windows.Forms.Button btnStartStop;
-        private System.Windows.Forms.NumericUpDown numericUpDown_TaskPullIntervalMs;
-        private System.Windows.Forms.Label label13;
-        private System.Windows.Forms.Label label5;
-        private System.Windows.Forms.Label label7;
-        private System.Windows.Forms.TextBox textBox_TaskApiUrl;
-        private System.Windows.Forms.Label label10;
-        private System.Windows.Forms.Button button1;
-        private System.Windows.Forms.CheckBox checkBox_IsProxyMode;
-        private System.Windows.Forms.Label label11;
-        private System.Windows.Forms.NumericUpDown numericUpDown_Multiple;
-        private System.Windows.Forms.CheckBox checkBox_IsRealIp;
-        private System.Windows.Forms.Label label15;
-        private System.Windows.Forms.NumericUpDown numericUpDown_ChildProcessResetIntervalMinutes;
-        private System.Windows.Forms.Label label17;
-        private System.Windows.Forms.NumericUpDown numericUpDown_MainProcessResetIntervalMinutes;
-        private System.Windows.Forms.Label label16;
-        private System.Windows.Forms.Label label18;
-        private System.Windows.Forms.Label label19;
-        private System.Windows.Forms.GroupBox groupBox5;
-        private System.Windows.Forms.Label label20;
-        private System.Windows.Forms.TextBox textBox_SmsName;
-        private System.Windows.Forms.Label label21;
-        private System.Windows.Forms.Label label22;
-        private System.Windows.Forms.NumericUpDown numericUpDown_SendSmsTimeout;
-        private System.Windows.Forms.CheckBox checkBox_SendSms;
-        private System.Windows.Forms.TextBox textBox_SmsPhone;
-        private System.Windows.Forms.Label label23;
-        private System.Windows.Forms.Button button2;
-        private System.Windows.Forms.CheckBox checkBox_NoneOS;
-        private System.Windows.Forms.CheckBox checkBox_CheckIpRegion;
-        private System.Windows.Forms.CheckBox checkBox_UsingSystemDevs;
-        private System.Windows.Forms.CheckBox checkBox_UsingIOSIMEI;
-        private System.Windows.Forms.CheckBox checkBox_UsingIOSMAC;
-        private System.Windows.Forms.LinkLabel linkLabel1;
-        private System.Windows.Forms.LinkLabel linkLabel2;
-        private System.Windows.Forms.CheckBox checkBox_CheckIpHealth;
-        private System.Windows.Forms.TextBox textBox_DevApiUrl;
-        private System.Windows.Forms.Label label24;
-        private System.Windows.Forms.CheckBox checkBox_DisableImage;
-        private System.Windows.Forms.CheckBox checkBox_IsHiddenMode;
+
+        private ToolStripStatusLabel toolStripStatusLabel5;
+        private CheckBox checkBox_IsHiddenMode;
+        private CheckBox checkBox_IsCheckIp;
+        private GroupBox groupBox5;
+        private Button button2;
+        private Label label23;
+        private TextBox textBox_SmsPhone;
+        private Label label22;
+        private NumericUpDown numericUpDown_SendSmsTimeout;
+        private Label label21;
+        private Label label20;
+        private TextBox textBox_SmsName;
+        private CheckBox checkBox_SendSms;
+        private CheckBox checkBox_IsRealIp;
+        private Label label11;
+        private NumericUpDown numericUpDown_Multiple;
+        private Button buttonClear;
+        private TextBox textBox_TaskApiUrl;
+        private Label label10;
+        private Label label13;
+        private NumericUpDown numericUpDown_TaskPullInterval;
+        private Button btnStartStop;
+        private Label label12;
+        private NumericUpDown numericUpDown_MaxConcurrency;
+        private Label label90;
+        private NumericUpDown numericUpDown_UvExecutionInterval;
+        private Label label4;
+        private TextBox textBox_TaskName;
+        private ToolStripStatusLabel toolStripStatusLabel6;
+        private ToolStripStatusLabel toolStripStatusLabel4;
+        private ToolStripStatusLabel toolStripStatusLabel3;
+        private ToolStripStatusLabel toolStripStatusLabel2;
+        private ToolStripStatusLabel toolStripStatusLabel1;
+        private GroupBox groupBox4;
+        private StatusStrip statusStrip1;
+        private Label label3;
+        private RadioButton radioButton_UseLocalDev;
+        private RadioButton radioButton_UsingRealDev;
+        private RadioButton radioButton_UseSystemDev;
+        private TextBox textBox_ProxyIpUrl;
+        private Label label1;
+        private GroupBox groupBox6;
+        private Label label2;
         private Label label25;
         private Label label27;
         private NumericUpDown numericUpDown_IpValidityDuration;
-        private Label label12;
-        private NumericUpDown numericUpDown_ChannelCapacity;
+        private Label label24;
+        private Label label16;
+        private NumericUpDown numericUpDown_PageLoadTimeout;
+        private Label label_start;
+        private Label label_click;
+        private GroupBox groupBox2;
+        private Label label_dsp;
+        private Label label_time;
+        private Label label_request;
+        private LinkLabel linkLabel1;
+        private CheckBox checkBox_IsDetailLog;
+        private TextBox textBox_DevApiUrl;
+        private Label label14;
+        private Label label19;
+        private Label label18;
+        private NumericUpDown numericUpDown_ChildProcessResetIntervalMinutes;
+        private Label label17;
+        private NumericUpDown numericUpDown_MainProcessResetIntervalMinutes;
+        private Label label26;
+        private CheckBox checkBox_IsProxyMode;
+        private ToolStripStatusLabel lblStatus;
+        private CheckBox checkBox_IsOsrMode;
     }
 }
 
