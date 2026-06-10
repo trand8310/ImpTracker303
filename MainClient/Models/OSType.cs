@@ -12,4 +12,5 @@ namespace MainClient.Models
         WINDOWS_PHONE = 6,
         PC = 7
     }
+
 }

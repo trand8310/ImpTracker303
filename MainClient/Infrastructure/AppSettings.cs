@@ -89,10 +89,6 @@
         /// </summary>
         public bool IsTest { get; set; }
 
-        /// <summary>
-        /// Osr模式
-        /// </summary>
-        public bool IsOsrMode { get; set; } = false;
 
 
 

@@ -2,6 +2,7 @@
 using MainClient.Common;
 using MainClient.Infrastructure;
 using MainClient.Logging;
+using MainClient.Scheduler;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -114,7 +115,7 @@ namespace MainClient
                     //});
 
                     //services.AddSingleton<ChineseNameGenerator>();
-                    //services.AddSingleton<ChromiumSessionManager>();
+                    services.AddSingleton<TrafficAggregator>();
                     services.AddSingleton<AdxHelper>();
                     services.AddSingleton<IpHelper>();
                     services.AddSingleton<ProxyTester>();

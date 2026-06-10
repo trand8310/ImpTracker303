@@ -81,7 +81,8 @@
             label_start = new Label();
             label_click = new Label();
             groupBox2 = new GroupBox();
-            checkBox_IsOsrMode = new CheckBox();
+            label5 = new Label();
+            numericUpDown_ChannelCapacity = new NumericUpDown();
             label_dsp = new Label();
             label_time = new Label();
             label_request = new Label();
@@ -96,8 +97,6 @@
             numericUpDown_MainProcessResetIntervalMinutes = new NumericUpDown();
             label26 = new Label();
             checkBox_IsProxyMode = new CheckBox();
-            label5 = new Label();
-            numericUpDown_ChannelCapacity = new NumericUpDown();
             groupBox5.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_SendSmsTimeout).BeginInit();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_Multiple).BeginInit();
@@ -109,9 +108,9 @@
             ((System.ComponentModel.ISupportInitialize)numericUpDown_IpValidityDuration).BeginInit();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_PageLoadTimeout).BeginInit();
             groupBox2.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_ChannelCapacity).BeginInit();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_ChildProcessResetIntervalMinutes).BeginInit();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_MainProcessResetIntervalMinutes).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_ChannelCapacity).BeginInit();
             SuspendLayout();
             // 
             // toolStripStatusLabel5
@@ -628,7 +627,6 @@
             // 
             groupBox2.Controls.Add(label5);
             groupBox2.Controls.Add(numericUpDown_ChannelCapacity);
-            groupBox2.Controls.Add(checkBox_IsOsrMode);
             groupBox2.Controls.Add(label25);
             groupBox2.Controls.Add(label27);
             groupBox2.Controls.Add(numericUpDown_IpValidityDuration);
@@ -684,16 +682,25 @@
             groupBox2.TabStop = false;
             groupBox2.Text = "设置";
             // 
-            // checkBox_IsOsrMode
+            // label5
             // 
-            checkBox_IsOsrMode.AutoSize = true;
-            checkBox_IsOsrMode.Location = new Point(577, 285);
-            checkBox_IsOsrMode.Margin = new Padding(5, 6, 5, 6);
-            checkBox_IsOsrMode.Name = "checkBox_IsOsrMode";
-            checkBox_IsOsrMode.Size = new Size(86, 24);
-            checkBox_IsOsrMode.TabIndex = 98;
-            checkBox_IsOsrMode.Text = "Osr模式";
-            checkBox_IsOsrMode.UseVisualStyleBackColor = true;
+            label5.AutoSize = true;
+            label5.Location = new Point(48, 254);
+            label5.Margin = new Padding(5, 0, 5, 0);
+            label5.Name = "label5";
+            label5.Size = new Size(69, 20);
+            label5.TabIndex = 99;
+            label5.Text = "任务队列";
+            // 
+            // numericUpDown_ChannelCapacity
+            // 
+            numericUpDown_ChannelCapacity.Location = new Point(122, 249);
+            numericUpDown_ChannelCapacity.Margin = new Padding(5, 4, 5, 4);
+            numericUpDown_ChannelCapacity.Maximum = new decimal(new int[] { 999, 0, 0, 0 });
+            numericUpDown_ChannelCapacity.Name = "numericUpDown_ChannelCapacity";
+            numericUpDown_ChannelCapacity.Size = new Size(86, 27);
+            numericUpDown_ChannelCapacity.TabIndex = 100;
+            numericUpDown_ChannelCapacity.Value = new decimal(new int[] { 1, 0, 0, 0 });
             // 
             // label_dsp
             // 
@@ -835,26 +842,6 @@
             checkBox_IsProxyMode.Text = "代理模式";
             checkBox_IsProxyMode.UseVisualStyleBackColor = true;
             // 
-            // label5
-            // 
-            label5.AutoSize = true;
-            label5.Location = new Point(48, 254);
-            label5.Margin = new Padding(5, 0, 5, 0);
-            label5.Name = "label5";
-            label5.Size = new Size(69, 20);
-            label5.TabIndex = 99;
-            label5.Text = "任务队列";
-            // 
-            // numericUpDown_ChannelCapacity
-            // 
-            numericUpDown_ChannelCapacity.Location = new Point(122, 249);
-            numericUpDown_ChannelCapacity.Margin = new Padding(5, 4, 5, 4);
-            numericUpDown_ChannelCapacity.Maximum = new decimal(new int[] { 999, 0, 0, 0 });
-            numericUpDown_ChannelCapacity.Name = "numericUpDown_ChannelCapacity";
-            numericUpDown_ChannelCapacity.Size = new Size(86, 27);
-            numericUpDown_ChannelCapacity.TabIndex = 100;
-            numericUpDown_ChannelCapacity.Value = new decimal(new int[] { 1, 0, 0, 0 });
-            // 
             // MainForm
             // 
             AutoScaleDimensions = new SizeF(120F, 120F);
@@ -883,9 +870,9 @@
             ((System.ComponentModel.ISupportInitialize)numericUpDown_PageLoadTimeout).EndInit();
             groupBox2.ResumeLayout(false);
             groupBox2.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_ChannelCapacity).EndInit();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_ChildProcessResetIntervalMinutes).EndInit();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_MainProcessResetIntervalMinutes).EndInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_ChannelCapacity).EndInit();
             ResumeLayout(false);
             PerformLayout();
 
@@ -960,7 +947,6 @@
         private Label label26;
         private CheckBox checkBox_IsProxyMode;
         private ToolStripStatusLabel lblStatus;
-        private CheckBox checkBox_IsOsrMode;
         private Label label5;
         private NumericUpDown numericUpDown_ChannelCapacity;
     }

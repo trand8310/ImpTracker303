@@ -1,17 +1,16 @@
+using CefClient.Common;
+using CefClient.Handler;
+using CefSharp;
+using CefSharp.DevTools.Emulation;
+using CefSharp.OffScreen;
+using Newtonsoft.Json.Linq;
+using System.Diagnostics;
+using System.Globalization;
+using System.Net;
+
+
 namespace CefClient
 {
-    using CefClient.Common;
-    using CefClient.Handler;
-    using CefSharp;
-    using CefSharp.DevTools.Emulation;
-    using CefSharp.OffScreen;
-    using System;
-    using System.Collections.Specialized;
-    using System.Diagnostics;
-    using System.Globalization;
-    using System.Net;
-    using System.Text.Json.Nodes;
-
     public sealed class BrowserSlot : IAsyncDisposable
     {
         private const int DefaultLoadTimeoutMs = 8000;
@@ -75,26 +74,29 @@ namespace CefClient
             return "";
         }
 
-        public async Task<BrowserRunResult> RunAsync(JsonNode? payload, CancellationToken cancellationToken = default)
+        public async Task<BrowserRunResult> RunAsync(JToken? payload, CancellationToken cancellationToken = default)
         {
 
             var task = payload?["task"];
             var sleepDelayMs = GetSleepDelayMilliseconds(task);
             var url = payload?["url"]?.ToString();
-            var referer = GetString(payload, "referer");
+            var referer = payload?["referer"]?.ToString();
             if (string.IsNullOrWhiteSpace(referer))
-                referer = GetString(task, "referer");
+                referer = task?["referer"]?.ToString();
+
+
+
             var taskId = payload?["taskId"]?.ToString() ?? BrowserId;
             var consumerId = payload?["consumerId"]?.ToString() ?? "unknown";
             var uvIndex = payload?["uvIndex"]?.ToString() ?? BrowserId;
-            var isHiddenMode = payload?["isHiddenMode"]?.GetValue<bool>() ?? true;
+            var isHiddenMode = payload?["isHiddenMode"]?.Value<bool>() ?? true;
 
             try
             {
                 await PublishStatusAsync("start", true, "browser created", cancellationToken);
                 if (string.IsNullOrWhiteSpace(url))
                 {
-                    await PublishStatusAsync("error", false, "url 不能为空", cancellationToken, new JsonObject
+                    await PublishStatusAsync("error", false, "url 不能为空", cancellationToken, new JObject
                     {
                         ["taskId"] = taskId,
                         ["consumerId"] = consumerId,
@@ -111,10 +113,10 @@ namespace CefClient
                 var cachePath = Path.Combine(CefCachePaths.RootCachePath, $"s{uvIndex}");
 
 
-                var os = GetNullableInt(payload, "os") ?? 0;
+                var os = payload?["os"]?.Value<int>() ?? 0;
                 var device = payload?["device"];
-                var sw = GetNullableInt(device, "sw") ?? 1080;
-                var sh = GetNullableInt(device, "sh") ?? 1920;
+                var sw = device?["sw"]?.Value<int>() ?? 1080;
+                var sh = device?["sh"]?.Value<int>() ?? 1920;
                 var ua = device?["ua"]?.ToString();
                 var platform = os == 1 ? "Android" : "iPhone";
                 var devProfile = DeviceViewportMatcher.Match(sw, sh, os == 2 ? DeviceSystemType.IOS : DeviceSystemType.Android);
@@ -141,7 +143,8 @@ namespace CefClient
                 await browser.WaitForInitialLoadAsync().WaitAsync(TimeSpan.FromMilliseconds(DefaultInitialLoadTimeoutMs), cancellationToken);
                 await ConfigureProxyAsync(requestContext, payload, cancellationToken);
                 using var devToolsClient = browser.GetDevToolsClient();
-                if (GetBool(payload, "clearStorage", false))
+
+                if (payload?["clearStorage"]?.Value<bool>() ?? false)
                 {
                     await devToolsClient.Storage.ClearDataForOriginAsync("*", "cache_storage,cookies,local_storage");
                 }
@@ -176,11 +179,12 @@ namespace CefClient
 
 
 
-                var loadTimeoutMs = GetPositiveInt(payload, "loadTimeoutMs", DefaultLoadTimeoutMs);
-                var screenshotTimeoutMs = GetPositiveInt(payload, "screenshotTimeoutMs", DefaultScreenshotTimeoutMs);
-                var titleTimeoutMs = GetPositiveInt(payload, "titleTimeoutMs", DefaultTitleTimeoutMs);
+                var loadTimeoutMs = payload?["loadTimeoutMs"]?.Value<int>() ?? DefaultLoadTimeoutMs;
+                var screenshotTimeoutMs = payload?["screenshotTimeoutMs"]?.Value<int>() ?? DefaultScreenshotTimeoutMs;
+                var titleTimeoutMs = payload?["titleTimeoutMs"]?.Value<int>() ?? DefaultTitleTimeoutMs;
                 var pvIntervalMs = 1000;
-                var pvTotal = GetPositiveInt(task, "pv", 1);
+                var pvTotal = task?["pv"]?.Value<int>() ?? 1;
+
                 WaitForNavigationAsyncResponse? lastLoadResponse = null;
                 var lastLoadTimedOut = false;
                 var completedPv = 0;
@@ -216,7 +220,7 @@ namespace CefClient
                     lastLoadResponse = loadResponse;
                     lastLoadTimedOut = loadTimedOut;
                     completedPv = pvIndex;
-                    var pvData = new JsonObject
+                    var pvData = new JObject
                     {
                         ["url"] = url,
                         ["referer"] = referer,
@@ -259,7 +263,7 @@ namespace CefClient
                     var title = await GetPageTitleAsync(browser, titleTimeoutMs, cancellationToken);
                     await PublishLogAsync($"Final screenshot captured={screenshotShown}, title={title}");
                 }
-                var successData = new JsonObject
+                var successData = new JObject
                 {
                     ["url"] = url,
                     ["referer"] = referer,
@@ -275,7 +279,7 @@ namespace CefClient
                     ["osrOneShot"] = true,
                     ["disposedByRunAsync"] = true
                 };
-               
+
                 //await PublishLogAsync($"RunAsync success. completedPv={completedPv}/{pvTotal}, finalLoadCompleted={finalLoadCompleted}");
                 // 当前 RunAsync 暂未执行点击动作；后续如果在这里补充点击流程，点击完成后调用 PublishStatusAsync("click", ...)。
                 await PublishStatusAsync("click", true, finalLoadCompleted ? "page opened" : "页面加载较慢，已按超时继续", cancellationToken);
@@ -294,7 +298,7 @@ namespace CefClient
             {
                 await PublishLogAsync("RunAsync canceled");
 
-                await PublishStatusAsync("error", false, "取消", CancellationToken.None, new JsonObject
+                await PublishStatusAsync("error", false, "取消", CancellationToken.None, new JObject
                 {
                     ["url"] = url ?? string.Empty,
                     ["referer"] = referer,
@@ -314,7 +318,7 @@ namespace CefClient
             {
                 await PublishLogAsync($"RunAsync exception: {ex.Message}");
 
-                await PublishStatusAsync("error", false, ex.Message, CancellationToken.None, new JsonObject
+                await PublishStatusAsync("error", false, ex.Message, CancellationToken.None, new JObject
                 {
                     ["url"] = url ?? string.Empty,
                     ["referer"] = referer,
@@ -337,7 +341,7 @@ namespace CefClient
                     await Task.Delay(sleepDelayMs, CancellationToken.None);
                 }
 
-                await PublishStatusAsync("complete", true, "RunAsync complete", CancellationToken.None, new JsonObject
+                await PublishStatusAsync("complete", true, "RunAsync complete", CancellationToken.None, new JObject
                 {
                     ["url"] = url ?? string.Empty,
                     ["referer"] = referer,
@@ -401,12 +405,12 @@ namespace CefClient
             bool success,
             string message,
             CancellationToken cancellationToken,
-            JsonNode? data = null)
+            JToken? data = null)
         {
             if (_statusChanged == null)
                 return;
 
-            var statusData = data?.DeepClone() as JsonObject ?? new JsonObject();
+            var statusData = data?.DeepClone() as JObject ?? new JObject();
             statusData["stage"] = stage;
             statusData["browserId"] = BrowserId;
 
@@ -431,13 +435,13 @@ namespace CefClient
             }
         }
 
-        private async Task ConfigureProxyAsync(IRequestContext requestContext, JsonNode? payload, CancellationToken cancellationToken)
+        private async Task ConfigureProxyAsync(IRequestContext requestContext, JToken? payload, CancellationToken cancellationToken)
         {
             var proxyServer = payload?["proxy_server"]?.ToString();
             if (string.IsNullOrWhiteSpace(proxyServer))
                 proxyServer = payload?["proxyServer"]?.ToString();
 
-            var isProxyMode = GetBool(payload, "isProxyMode", false) || !string.IsNullOrWhiteSpace(proxyServer);
+            var isProxyMode = (payload?["isProxyMode"]?.Value<bool>() ?? false) || !string.IsNullOrWhiteSpace(proxyServer);
             if (!isProxyMode || string.IsNullOrWhiteSpace(proxyServer))
                 return;
 
@@ -495,9 +499,9 @@ namespace CefClient
                 return false;
             }
         }
-        private static int GetSleepDelayMilliseconds(JsonNode? task)
+        private static int GetSleepDelayMilliseconds(JToken? task)
         {
-            var sleepText = GetNodeText(task?["sleep"]);
+            var sleepText = task["sleep"]?.Value<string>();
             if (string.IsNullOrWhiteSpace(sleepText))
                 return 0;
 
@@ -529,65 +533,6 @@ namespace CefClient
 
             return seconds > int.MaxValue / 1000 ? int.MaxValue : seconds * 1000;
         }
-        private static string GetNodeText(JsonNode? node)
-        {
-            if (node == null)
-                return string.Empty;
-
-            try
-            {
-                return node.GetValue<string>() ?? string.Empty;
-            }
-            catch
-            {
-                return node.ToString();
-            }
-        }
-        private static string GetString(JsonNode? payload, string name, string defaultValue = "")
-        {
-            var node = payload?[name];
-            if (node == null)
-                return defaultValue;
-
-            try
-            {
-                if (node is JsonArray array)
-                    return array.FirstOrDefault()?.GetValue<string>() ?? defaultValue;
-
-                return node.GetValue<string>() ?? defaultValue;
-            }
-            catch
-            {
-                return node.ToString();
-            }
-        }
-        private static bool GetBool(JsonNode? payload, string name, bool defaultValue)
-        {
-            try
-            {
-                return payload?[name]?.GetValue<bool>() ?? defaultValue;
-            }
-            catch
-            {
-                return defaultValue;
-            }
-        }
-        private static int GetPositiveInt(JsonNode? payload, string name, int defaultValue)
-        {
-            var value = GetNullableInt(payload, name);
-            return value.HasValue && value.Value > 0 ? value.Value : defaultValue;
-        }
-        private static int? GetNullableInt(JsonNode? payload, string name)
-        {
-            try
-            {
-                return payload?[name]?.GetValue<int>();
-            }
-            catch
-            {
-                return null;
-            }
-        }
 
         /// <summary>
         /// OSR 一次性浏览器不挂 UI，这里保留原调用点以兼容外部流程。
@@ -618,7 +563,7 @@ namespace CefClient
         public string Stage { get; set; } = "";
         public bool Success { get; set; }
         public string Message { get; set; } = "";
-        public JsonNode? Data { get; set; }
+        public JToken? Data { get; set; }
     }
 
     public sealed class BrowserRunResult
@@ -626,6 +571,6 @@ namespace CefClient
         public string BrowserId { get; set; } = "";
         public bool Success { get; set; }
         public string Message { get; set; } = "";
-        public JsonNode? Data { get; set; }
+        public JToken? Data { get; set; }
     }
 }

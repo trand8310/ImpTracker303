@@ -1,0 +1,513 @@
+﻿
+
+namespace CefClient.Handler
+{
+    using CefSharp;
+    using Newtonsoft.Json;
+    using System;
+    using System.Collections.Concurrent;
+    using System.Collections.Generic;
+    using System.Collections.Specialized;
+    using System.IO;
+    using System.Security.Cryptography;
+    using System.Text;
+    using System.Threading;
+    using System.Threading.Tasks;
+
+    public sealed class ResourceCacheManager
+    {
+        private readonly ConcurrentDictionary<string, ResourceCacheItem> _memoryIndex;
+        private readonly ConcurrentDictionary<string, SemaphoreSlim> _keyLocks;
+
+        private static readonly HashSet<string> ImageExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".ico"
+        };
+
+        private static readonly HashSet<string> ScriptExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".js", ".mjs"
+        };
+
+        private static readonly HashSet<string> CssExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".css"
+        };
+
+        private static readonly HashSet<string> FontExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".woff", ".woff2", ".ttf", ".otf", ".eot"
+        };
+
+        private static readonly HashSet<string> VideoExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".mp4", ".webm", ".m4v", ".mov", ".m3u8", ".ts"
+        };
+
+        public ResourceCacheOptions Options { get; private set; }
+
+        public ResourceCacheManager(ResourceCacheOptions options)
+        {
+            Options = options ?? new ResourceCacheOptions();
+
+            if (string.IsNullOrWhiteSpace(Options.CacheRoot))
+            {
+                Options.CacheRoot = "cef_resource_cache";
+            }
+
+            _memoryIndex = new ConcurrentDictionary<string, ResourceCacheItem>();
+            _keyLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
+
+            Directory.CreateDirectory(Options.CacheRoot);
+        }
+
+        public bool ShouldCache(IRequest request)
+        {
+            if (request == null)
+                return false;
+
+            if (!string.Equals(request.Method, "GET", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (string.IsNullOrWhiteSpace(request.Url))
+                return false;
+
+            Uri uri;
+
+            if (!Uri.TryCreate(request.Url, UriKind.Absolute, out uri))
+                return false;
+
+            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+                return false;
+
+            if (IsRangeRequest(request))
+                return false;
+
+            var ext = GetExtensionFromUrl(request.Url);
+
+            if (Options.EnableImageCache && ImageExts.Contains(ext))
+                return true;
+
+            if (Options.EnableScriptCache && ScriptExts.Contains(ext))
+                return true;
+
+            if (Options.EnableCssCache && CssExts.Contains(ext))
+                return true;
+
+            if (Options.EnableFontCache && FontExts.Contains(ext))
+                return true;
+
+            if (Options.EnableVideoCache && VideoExts.Contains(ext))
+                return true;
+
+            // 不同 CefSharp 版本 ResourceType 枚举名称可能略有差别。
+            // 这里尽量用 ToString 兼容。
+            var resourceType = request.ResourceType.ToString();
+
+            if (Options.EnableImageCache &&
+                string.Equals(resourceType, "Image", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (Options.EnableScriptCache &&
+                string.Equals(resourceType, "Script", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (Options.EnableCssCache &&
+                string.Equals(resourceType, "Stylesheet", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (Options.EnableFontCache &&
+                (string.Equals(resourceType, "FontResource", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(resourceType, "Font", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            if (Options.EnableVideoCache &&
+                (string.Equals(resourceType, "Media", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(resourceType, "MediaResource", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        public bool ShouldCaptureResponse(IRequest request, IResponse response)
+        {
+            if (!ShouldCache(request))
+                return false;
+
+            if (response == null)
+                return false;
+
+            if (response.StatusCode < 200 || response.StatusCode >= 300)
+                return false;
+
+            // 206 是 Range 分片，不要当完整文件缓存
+            if (response.StatusCode == 206)
+                return false;
+
+            var headers = response.Headers;
+
+            if (headers != null)
+            {
+                var cacheControl = headers["Cache-Control"];
+
+                if (!string.IsNullOrWhiteSpace(cacheControl) &&
+                    cacheControl.IndexOf("no-store", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return false;
+                }
+
+                var contentLengthText = headers["Content-Length"];
+                long contentLength;
+
+                if (long.TryParse(contentLengthText, out contentLength))
+                {
+                    if (contentLength <= 0)
+                        return false;
+
+                    if (contentLength > Options.MaxMemoryCaptureBytes)
+                        return false;
+                }
+            }
+
+            return true;
+        }
+
+        public bool ShouldSaveResponse(IRequest request, IResponse response, long bodyLength)
+        {
+            if (!ShouldCaptureResponse(request, response))
+                return false;
+
+            if (bodyLength <= 0)
+                return false;
+
+            if (bodyLength > Options.MaxMemoryCaptureBytes)
+                return false;
+
+            return true;
+        }
+
+        public ResourceCacheItem TryGetCache(IRequest request)
+        {
+            if (!ShouldCache(request))
+                return null;
+
+            var key = BuildCacheKey(request.Url);
+
+            ResourceCacheItem item;
+
+            if (_memoryIndex.TryGetValue(key, out item))
+            {
+                if (IsCacheItemValid(item))
+                {
+                    item.LastHitAt = DateTime.Now;
+                    return item;
+                }
+
+                ResourceCacheItem removed;
+                _memoryIndex.TryRemove(key, out removed);
+            }
+
+            var metaPath = GetMetaPath(key);
+
+            if (!File.Exists(metaPath))
+                return null;
+
+            try
+            {
+                var json = File.ReadAllText(metaPath, Encoding.UTF8);
+                var diskItem = JsonConvert.DeserializeObject<ResourceCacheItem>(json);
+
+                if (diskItem == null || !IsCacheItemValid(diskItem))
+                    return null;
+
+                diskItem.LastHitAt = DateTime.Now;
+                _memoryIndex[key] = diskItem;
+
+                return diskItem;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public void SaveAsync(IRequest request, IResponse response, byte[] bytes)
+        {
+            if (request == null || response == null || bytes == null || bytes.Length == 0)
+                return;
+
+            var url = request.Url;
+            var key = BuildCacheKey(url);
+
+            Task.Run(delegate
+            {
+                var sem = _keyLocks.GetOrAdd(key, delegate { return new SemaphoreSlim(1, 1); });
+
+                sem.Wait();
+
+                try
+                {
+                    var old = TryGetCache(request);
+
+                    if (old != null)
+                        return;
+
+                    var ext = GetExtensionFromUrl(url);
+                    var mimeType = response.MimeType;
+
+                    if (string.IsNullOrWhiteSpace(ext))
+                    {
+                        ext = GetExtensionFromMimeType(mimeType);
+                    }
+
+                    if (string.IsNullOrWhiteSpace(ext))
+                    {
+                        ext = ".bin";
+                    }
+
+                    var dir = GetCacheDir(key);
+                    Directory.CreateDirectory(dir);
+
+                    var filePath = Path.Combine(dir, key + ext);
+                    var tempPath = filePath + ".tmp";
+                    var metaPath = GetMetaPath(key);
+
+                    File.WriteAllBytes(tempPath, bytes);
+
+                    if (File.Exists(filePath))
+                    {
+                        File.Delete(filePath);
+                    }
+
+                    File.Move(tempPath, filePath);
+
+                    var item = new ResourceCacheItem
+                    {
+                        Url = url,
+                        FilePath = filePath,
+                        MimeType = string.IsNullOrWhiteSpace(mimeType) ? GetMimeTypeByExt(ext) : mimeType,
+                        Extension = ext,
+                        Length = bytes.Length,
+                        CreatedAt = DateTime.Now,
+                        LastHitAt = DateTime.Now
+                    };
+
+                    var json = JsonConvert.SerializeObject(item);
+                    File.WriteAllText(metaPath, json, Encoding.UTF8);
+
+                    _memoryIndex[key] = item;
+                }
+                catch
+                {
+                    // 这里接你的日志
+                }
+                finally
+                {
+                    sem.Release();
+
+                    SemaphoreSlim removed;
+                    _keyLocks.TryRemove(key, out removed);
+                }
+            });
+        }
+
+        public bool IsRangeRequest(IRequest request)
+        {
+            try
+            {
+                if (request == null)
+                    return false;
+
+                if (request.IsDisposed)
+                    return false;
+
+                var headers = request.Headers;
+
+                if (headers == null)
+                    return false;
+
+                var range = headers["Range"];
+
+                return !string.IsNullOrWhiteSpace(range);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool IsCacheItemValid(ResourceCacheItem item)
+        {
+            if (item == null)
+                return false;
+
+            if (string.IsNullOrWhiteSpace(item.Url))
+                return false;
+
+            if (string.IsNullOrWhiteSpace(item.FilePath))
+                return false;
+
+            if (!File.Exists(item.FilePath))
+                return false;
+
+            if (Options.CacheExpireDays > 0)
+            {
+                if (item.CreatedAt.AddDays(Options.CacheExpireDays) < DateTime.Now)
+                {
+                    TryDelete(item.FilePath);
+                    TryDelete(GetMetaPath(BuildCacheKey(item.Url)));
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private string GetCacheDir(string key)
+        {
+            var d1 = key.Substring(0, 2);
+            var d2 = key.Substring(2, 2);
+
+            return Path.Combine(Options.CacheRoot, d1, d2);
+        }
+
+        private string GetMetaPath(string key)
+        {
+            return Path.Combine(GetCacheDir(key), key + ".json");
+        }
+
+        private static string BuildCacheKey(string url)
+        {
+            using (var sha = SHA256.Create())
+            {
+                var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(url));
+                return BytesToHex(bytes);
+            }
+        }
+
+        private static string BytesToHex(byte[] bytes)
+        {
+            var sb = new StringBuilder(bytes.Length * 2);
+
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                sb.Append(bytes[i].ToString("x2"));
+            }
+
+            return sb.ToString();
+        }
+
+        private static string GetExtensionFromUrl(string url)
+        {
+            try
+            {
+                var uri = new Uri(url);
+                var path = uri.AbsolutePath;
+                var ext = Path.GetExtension(path);
+
+                if (string.IsNullOrWhiteSpace(ext))
+                    return "";
+
+                return ext.ToLowerInvariant();
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private static string GetExtensionFromMimeType(string mimeType)
+        {
+            if (string.IsNullOrWhiteSpace(mimeType))
+                return ".bin";
+
+            mimeType = mimeType.ToLowerInvariant();
+
+            if (mimeType == "image/jpeg") return ".jpg";
+            if (mimeType == "image/png") return ".png";
+            if (mimeType == "image/gif") return ".gif";
+            if (mimeType == "image/webp") return ".webp";
+            if (mimeType == "image/svg+xml") return ".svg";
+
+            if (mimeType == "text/javascript") return ".js";
+            if (mimeType == "application/javascript") return ".js";
+            if (mimeType == "application/x-javascript") return ".js";
+
+            if (mimeType == "text/css") return ".css";
+
+            if (mimeType == "font/woff") return ".woff";
+            if (mimeType == "font/woff2") return ".woff2";
+            if (mimeType == "application/font-woff") return ".woff";
+            if (mimeType == "application/font-woff2") return ".woff2";
+            if (mimeType == "application/vnd.ms-fontobject") return ".eot";
+            if (mimeType == "font/ttf") return ".ttf";
+            if (mimeType == "font/otf") return ".otf";
+
+            if (mimeType == "video/mp4") return ".mp4";
+            if (mimeType == "video/webm") return ".webm";
+            if (mimeType == "application/vnd.apple.mpegurl") return ".m3u8";
+            if (mimeType == "application/x-mpegurl") return ".m3u8";
+            if (mimeType == "video/mp2t") return ".ts";
+
+            return ".bin";
+        }
+
+        private static string GetMimeTypeByExt(string ext)
+        {
+            if (string.IsNullOrWhiteSpace(ext))
+                return "application/octet-stream";
+
+            ext = ext.ToLowerInvariant();
+
+            if (ext == ".jpg" || ext == ".jpeg") return "image/jpeg";
+            if (ext == ".png") return "image/png";
+            if (ext == ".gif") return "image/gif";
+            if (ext == ".webp") return "image/webp";
+            if (ext == ".bmp") return "image/bmp";
+            if (ext == ".svg") return "image/svg+xml";
+            if (ext == ".ico") return "image/x-icon";
+
+            if (ext == ".js" || ext == ".mjs") return "application/javascript";
+            if (ext == ".css") return "text/css";
+
+            if (ext == ".woff") return "font/woff";
+            if (ext == ".woff2") return "font/woff2";
+            if (ext == ".ttf") return "font/ttf";
+            if (ext == ".otf") return "font/otf";
+            if (ext == ".eot") return "application/vnd.ms-fontobject";
+
+            if (ext == ".mp4") return "video/mp4";
+            if (ext == ".webm") return "video/webm";
+            if (ext == ".m4v") return "video/x-m4v";
+            if (ext == ".mov") return "video/quicktime";
+            if (ext == ".m3u8") return "application/vnd.apple.mpegurl";
+            if (ext == ".ts") return "video/mp2t";
+
+            return "application/octet-stream";
+        }
+
+        private static void TryDelete(string file)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(file) && File.Exists(file))
+                {
+                    File.Delete(file);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+}

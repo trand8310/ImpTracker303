@@ -1,16 +1,14 @@
-using System.IO.Pipes;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Serialization;
 using System.Collections.Concurrent;
+using System.IO.Pipes;
 using System.Text;
-using System.Text.Json;
 
 namespace CefClient;
 
 public sealed class PipeHostService : IAsyncDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
 
     private readonly string _pipeName;
     private readonly OffScreenBrowserHost _browserHost;
@@ -23,7 +21,7 @@ public sealed class PipeHostService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, Task> _runTasks = new();
 
     private string? _taskId;
-    private System.Text.Json.Nodes.JsonNode? _taskPayload;
+    private JToken? _taskPayload;
 
     public PipeHostService(string pipeName, OffScreenBrowserHost browserHost)
     {
@@ -45,7 +43,7 @@ public sealed class PipeHostService : IAsyncDisposable
                 BrowserId = browserId,
                 Success = true,
                 Message = "screenshot captured",
-                Data = new System.Text.Json.Nodes.JsonObject
+                Data = new  JObject
                 {
                     ["contentType"] = "image/png",
                     ["base64"] = Convert.ToBase64String(screenshotBytes),
@@ -123,7 +121,7 @@ public sealed class PipeHostService : IAsyncDisposable
             PipeEnvelope? req;
             try
             {
-                req = JsonSerializer.Deserialize<PipeEnvelope>(line, JsonOptions);
+                req = JsonConvert.DeserializeObject<PipeEnvelope>(line);
             }
             catch
             {
@@ -230,7 +228,7 @@ public sealed class PipeHostService : IAsyncDisposable
                     data: result.Data);
             }
 
-            var dataObj = result.Data as System.Text.Json.Nodes.JsonObject ?? new System.Text.Json.Nodes.JsonObject();
+            var dataObj = result.Data as JObject ?? new JObject();
             dataObj["removedByCefClient"] = true;
             dataObj["osrOneShot"] = true;
             dataObj["disposedByRunAsync"] = true;
@@ -330,9 +328,9 @@ public sealed class PipeHostService : IAsyncDisposable
         bool success,
         string message,
         CancellationToken cancellationToken,
-        System.Text.Json.Nodes.JsonNode? data = null)
+        JToken? data = null)
     {
-        var statusData = data as System.Text.Json.Nodes.JsonObject ?? new System.Text.Json.Nodes.JsonObject();
+        var statusData = data as  JObject ?? new JObject();
         statusData["stage"] = stage;
 
         await SendAsync(new PipeEnvelope
@@ -351,7 +349,15 @@ public sealed class PipeHostService : IAsyncDisposable
         if (_writer == null)
             throw new InvalidOperationException("未启动");
 
-        var json = JsonSerializer.Serialize(envelope, JsonOptions);
+        var json = JsonConvert.SerializeObject(envelope, new JsonSerializerSettings
+        {
+            ContractResolver = new DefaultContractResolver
+            {
+                NamingStrategy = new CamelCaseNamingStrategy()
+            }
+        });
+
+
 
         await _writeLock.WaitAsync(cancellationToken);
         try

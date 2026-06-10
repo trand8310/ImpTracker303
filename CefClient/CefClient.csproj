@@ -29,6 +29,7 @@
 	</PropertyGroup>
 	<ItemGroup>
 		<PackageReference Include="CefSharp.OffScreen.NETCore" Version="126.2.180" />
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
 	</ItemGroup>
 
 	<Target Name="CefSharpAfterBuildDebug" AfterTargets="AfterBuild">

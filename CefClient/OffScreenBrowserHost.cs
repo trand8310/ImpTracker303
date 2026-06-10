@@ -1,12 +1,12 @@
+using Newtonsoft.Json.Linq;
 using System.Collections.Concurrent;
-using System.Text.Json.Nodes;
+
 
 namespace CefClient
 {
     public sealed class OffScreenBrowserHost
     {
         private readonly ConcurrentDictionary<string, BrowserSlot> _slots = new();
-
         public event Action<string>? BrowserLog;
         public event Action<string, byte[]>? BrowserScreenshot;
         public event Func<string, BrowserRunStatus, CancellationToken, Task>? BrowserStatus;
@@ -19,7 +19,7 @@ namespace CefClient
 
         public async Task<BrowserRunResult> RunBrowserAsync(
             string browserId,
-            JsonNode? payload,
+            JToken? payload,
             CancellationToken cancellationToken = default)
         {
             var slot = new BrowserSlot(browserId, HandleBrowserScreenshot, WriteBrowserLog, PublishBrowserStatusAsync);

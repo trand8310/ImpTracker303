@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 
 namespace MainClient.Models
 {
@@ -18,7 +19,7 @@ namespace MainClient.Models
 
         public string? ProxyServer { get; set; }
         public string RealIp { get; set; } = string.Empty;
-        public JsonObject? IpInfo { get; set; }
+        public JToken? IpInfo { get; set; }
 
         public DateTime StartTime { get; set; } = DateTime.Now;
         public string TaskTitle { get; set; } = string.Empty;

@@ -1,5 +1,6 @@
 using CefSharp;
 using CefSharp.Handler;
+using System;
 
 namespace CefClient.Handler
 {
@@ -30,7 +31,7 @@ namespace CefClient.Handler
             if (IsAllowedNavigation(url))
                 return false;
 
-            _log($"Blocked external protocol navigation. url={url}, resourceType={request.ResourceType}, userGesture={userGesture}, isRedirect={isRedirect}");
+            //_log($"Blocked external protocol navigation. url={url}, resourceType={request.ResourceType}, userGesture={userGesture}, isRedirect={isRedirect}");
             return true;
         }
 

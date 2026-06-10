@@ -2,20 +2,16 @@
 
 namespace MainClient.Ipc
 {
+    using Newtonsoft.Json;
+    using Newtonsoft.Json.Linq;
+    using Newtonsoft.Json.Serialization;
+    using System.Collections.Concurrent;
     using System.Diagnostics;
     using System.IO.Pipes;
     using System.Text;
-    using System.Text.Json;
-    using System.Text.Json.Nodes;
-    using System.Collections.Concurrent;
-
 
     public sealed class CefClientSession : IAsyncDisposable
     {
-        private static readonly JsonSerializerOptions JsonOptions = new()
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        };
 
         private readonly string _exePath;
         private readonly string _pipeName;
@@ -179,7 +175,7 @@ namespace MainClient.Ipc
             }
         }
 
-        public async Task StartTaskAsync(string taskId, JsonNode? payload, CancellationToken cancellationToken = default)
+        public async Task StartTaskAsync(string taskId, JToken? payload, CancellationToken cancellationToken = default)
         {
             var resp = await SendAndWaitAsync(
                 new PipeEnvelope
@@ -219,7 +215,7 @@ namespace MainClient.Ipc
         public async Task CreateBrowserNoWaitAsync(
             string taskId,
             string browserId,
-            JsonNode? payload,
+            JToken? payload,
             CancellationToken cancellationToken = default)
         {
             await SendAsync(
@@ -236,7 +232,7 @@ namespace MainClient.Ipc
         public async Task<BrowserRunResponse> RunBrowserAsync(
             string taskId,
             string browserId,
-            JsonNode? payload,
+            JToken? payload,
             CancellationToken cancellationToken = default)
         {
             var resp = await SendAndWaitAsync(
@@ -262,7 +258,7 @@ namespace MainClient.Ipc
         public async Task RunBrowserNoWaitAsync(
             string taskId,
             string browserId,
-            JsonNode? payload,
+            JToken? payload,
             CancellationToken cancellationToken = default)
         {
             await SendAsync(
@@ -337,7 +333,15 @@ namespace MainClient.Ipc
             if (_writer == null)
                 throw new InvalidOperationException("管道尚未建立");
 
-            var json = JsonSerializer.Serialize(envelope, JsonOptions);
+
+            var json = JsonConvert.SerializeObject(envelope, new JsonSerializerSettings
+            {
+                ContractResolver = new DefaultContractResolver
+                {
+                    NamingStrategy = new CamelCaseNamingStrategy()
+                },
+            });
+
 
             await _writeLock.WaitAsync(cancellationToken);
             try
@@ -363,7 +367,7 @@ namespace MainClient.Ipc
                     PipeEnvelope? msg;
                     try
                     {
-                        msg = JsonSerializer.Deserialize<PipeEnvelope>(line, JsonOptions);
+                        msg = JsonConvert.DeserializeObject<PipeEnvelope>(line);
                     }
                     catch
                     {
