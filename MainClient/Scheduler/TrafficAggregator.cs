@@ -146,7 +146,7 @@ namespace MainClient.Scheduler
                     AllowSynchronousContinuations = false
                 });
 
-            _state = 0;
+            StartBackgroundWorkers();
         }
 
         #region Lifecycle
@@ -306,6 +306,8 @@ namespace MainClient.Scheduler
 
             _proxyIpStateQueue.Writer.TryWrite(new TrafficTaskProxyIpStateEvent(taskId, TrafficProxyIpKind.Consumed, ip, count));
         }
+
+        private bool CanAcceptEvents => Volatile.Read(ref _state) == 1;
 
         /// <summary>
         /// 获取指定任务的执行状态
