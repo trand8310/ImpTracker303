@@ -129,7 +129,7 @@ namespace MainClient.Scheduler
                     AllowSynchronousContinuations = false
                 });
 
-            _state = 0;
+            StartBackgroundWorkers();
         }
 
         #region Lifecycle
@@ -144,30 +144,38 @@ namespace MainClient.Scheduler
             await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                var state = Volatile.Read(ref _state);
-
-                if (state == 1)
-                    return;
-
-                if (state == 2)
-                    throw new InvalidOperationException("AdTrafficAggregator is stopping and cannot be started.");
-
-                if (state == 4)
-                    throw new ObjectDisposedException(nameof(TrafficAggregator));
-
-                _runCts = new CancellationTokenSource();
-
-                _processTaskQueue = Task.Run(() => ProcessTaskStateQueueAsync(_runCts.Token));
-                _processIpQueue = Task.Run(() => ProcessProxyIpQueueAsync(_runCts.Token));
-                _flushLoopTask = Task.Run(() => FlushLoopAsync(_runCts.Token));
-
-
-                Volatile.Write(ref _state, 1);
+                StartBackgroundWorkers();
             }
             finally
             {
                 _lifecycleLock.Release();
             }
+        }
+
+        private void StartBackgroundWorkers()
+        {
+            var state = Volatile.Read(ref _state);
+
+            if (state == 1)
+                return;
+
+            if (state == 2)
+                throw new InvalidOperationException("TrafficAggregator is stopping and cannot be started.");
+
+            if (state == 3)
+                throw new InvalidOperationException("TrafficAggregator has been stopped and cannot be restarted.");
+
+            if (state == 4)
+                throw new ObjectDisposedException(nameof(TrafficAggregator));
+
+            _runCts = new CancellationTokenSource();
+            var token = _runCts.Token;
+
+            _processTaskQueue = Task.Run(() => ProcessTaskStateQueueAsync(token));
+            _processIpQueue = Task.Run(() => ProcessProxyIpQueueAsync(token));
+            _flushLoopTask = Task.Run(() => FlushLoopAsync(token));
+
+            Volatile.Write(ref _state, 1);
         }
 
         public async Task StopAsync(CancellationToken cancellationToken = default)
@@ -232,7 +240,7 @@ namespace MainClient.Scheduler
 
         public void EnqueueTaskState(TrafficTaskStateEvent ev)
         {
-            if (!IsStarted)
+            if (!CanAcceptEvents)
                 return;
 
             _taskStateQueue.Writer.TryWrite(ev);
@@ -240,7 +248,7 @@ namespace MainClient.Scheduler
 
         public void EnqueueFetchedIp(int taskId, int count = 1)
         {
-            if (!IsStarted)
+            if (!CanAcceptEvents)
                 return;
 
             _proxyIpStateQueue.Writer.TryWrite(new TrafficTaskProxyIpStateEvent(taskId, TrafficProxyIpKind.Fetched, null, count));
@@ -248,11 +256,13 @@ namespace MainClient.Scheduler
 
         public void EnqueueConsumedIp(int taskId, string ip, int count = 1)
         {
-            if (!IsStarted)
+            if (!CanAcceptEvents)
                 return;
 
             _proxyIpStateQueue.Writer.TryWrite(new TrafficTaskProxyIpStateEvent(taskId, TrafficProxyIpKind.Consumed, ip, count));
         }
+
+        private bool CanAcceptEvents => Volatile.Read(ref _state) == 1;
 
         /// <summary>
         /// 获取指定任务的执行状态
