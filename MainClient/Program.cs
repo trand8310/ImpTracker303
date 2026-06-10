@@ -2,7 +2,6 @@
 using MainClient.Common;
 using MainClient.Infrastructure;
 using MainClient.Logging;
-using MainClient.UiTask;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -101,11 +100,6 @@ namespace MainClient
             var builder = new HostBuilder()
                 .ConfigureServices((context, services) =>
                 {
-                    services.Configure<AdeOptions>(opt =>
-                    {
-                        opt.AppVersion = AppConsts.AppVersion;
-                    });
-
                     services.AddSingleton(appSettings);
                     services.AddHttpClient();
                     //services.AddSingleton<IRootDomainService, RootDomainService>();
@@ -121,8 +115,7 @@ namespace MainClient
 
                     //services.AddSingleton<ChineseNameGenerator>();
                     //services.AddSingleton<ChromiumSessionManager>();
-                    services.AddSingleton<AdTrafficAggregator>();
-                    services.AddSingleton<AdeHelper>();
+                    services.AddSingleton<AdxHelper>();
                     services.AddSingleton<IpHelper>();
                     services.AddSingleton<ProxyTester>();
                     services.AddTransient<MainForm>();

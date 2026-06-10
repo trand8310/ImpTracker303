@@ -48,7 +48,7 @@
             textBox_TaskApiUrl = new TextBox();
             label10 = new Label();
             label13 = new Label();
-            numericUpDown_TaskPullInterval = new NumericUpDown();
+            numericUpDown_TaskPullIntervalMs = new NumericUpDown();
             btnStartStop = new Button();
             label12 = new Label();
             numericUpDown_MaxConcurrency = new NumericUpDown();
@@ -96,10 +96,12 @@
             numericUpDown_MainProcessResetIntervalMinutes = new NumericUpDown();
             label26 = new Label();
             checkBox_IsProxyMode = new CheckBox();
+            label5 = new Label();
+            numericUpDown_ChannelCapacity = new NumericUpDown();
             groupBox5.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_SendSmsTimeout).BeginInit();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_Multiple).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_TaskPullInterval).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_TaskPullIntervalMs).BeginInit();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_MaxConcurrency).BeginInit();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_UvExecutionInterval).BeginInit();
             statusStrip1.SuspendLayout();
@@ -109,6 +111,7 @@
             groupBox2.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_ChildProcessResetIntervalMinutes).BeginInit();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_MainProcessResetIntervalMinutes).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_ChannelCapacity).BeginInit();
             SuspendLayout();
             // 
             // toolStripStatusLabel5
@@ -316,15 +319,15 @@
             label13.TabIndex = 15;
             label13.Text = "毫秒";
             // 
-            // numericUpDown_TaskPullInterval
+            // numericUpDown_TaskPullIntervalMs
             // 
-            numericUpDown_TaskPullInterval.Location = new Point(122, 151);
-            numericUpDown_TaskPullInterval.Margin = new Padding(5, 4, 5, 4);
-            numericUpDown_TaskPullInterval.Maximum = new decimal(new int[] { 60000, 0, 0, 0 });
-            numericUpDown_TaskPullInterval.Name = "numericUpDown_TaskPullInterval";
-            numericUpDown_TaskPullInterval.Size = new Size(86, 27);
-            numericUpDown_TaskPullInterval.TabIndex = 14;
-            numericUpDown_TaskPullInterval.Value = new decimal(new int[] { 1000, 0, 0, 0 });
+            numericUpDown_TaskPullIntervalMs.Location = new Point(122, 151);
+            numericUpDown_TaskPullIntervalMs.Margin = new Padding(5, 4, 5, 4);
+            numericUpDown_TaskPullIntervalMs.Maximum = new decimal(new int[] { 60000, 0, 0, 0 });
+            numericUpDown_TaskPullIntervalMs.Name = "numericUpDown_TaskPullIntervalMs";
+            numericUpDown_TaskPullIntervalMs.Size = new Size(86, 27);
+            numericUpDown_TaskPullIntervalMs.TabIndex = 14;
+            numericUpDown_TaskPullIntervalMs.Value = new decimal(new int[] { 1000, 0, 0, 0 });
             // 
             // btnStartStop
             // 
@@ -623,6 +626,8 @@
             // 
             // groupBox2
             // 
+            groupBox2.Controls.Add(label5);
+            groupBox2.Controls.Add(numericUpDown_ChannelCapacity);
             groupBox2.Controls.Add(checkBox_IsOsrMode);
             groupBox2.Controls.Add(label25);
             groupBox2.Controls.Add(label27);
@@ -656,7 +661,7 @@
             groupBox2.Controls.Add(textBox_TaskApiUrl);
             groupBox2.Controls.Add(label10);
             groupBox2.Controls.Add(label13);
-            groupBox2.Controls.Add(numericUpDown_TaskPullInterval);
+            groupBox2.Controls.Add(numericUpDown_TaskPullIntervalMs);
             groupBox2.Controls.Add(btnStartStop);
             groupBox2.Controls.Add(label12);
             groupBox2.Controls.Add(numericUpDown_MaxConcurrency);
@@ -830,6 +835,26 @@
             checkBox_IsProxyMode.Text = "代理模式";
             checkBox_IsProxyMode.UseVisualStyleBackColor = true;
             // 
+            // label5
+            // 
+            label5.AutoSize = true;
+            label5.Location = new Point(48, 254);
+            label5.Margin = new Padding(5, 0, 5, 0);
+            label5.Name = "label5";
+            label5.Size = new Size(69, 20);
+            label5.TabIndex = 99;
+            label5.Text = "任务队列";
+            // 
+            // numericUpDown_ChannelCapacity
+            // 
+            numericUpDown_ChannelCapacity.Location = new Point(122, 249);
+            numericUpDown_ChannelCapacity.Margin = new Padding(5, 4, 5, 4);
+            numericUpDown_ChannelCapacity.Maximum = new decimal(new int[] { 999, 0, 0, 0 });
+            numericUpDown_ChannelCapacity.Name = "numericUpDown_ChannelCapacity";
+            numericUpDown_ChannelCapacity.Size = new Size(86, 27);
+            numericUpDown_ChannelCapacity.TabIndex = 100;
+            numericUpDown_ChannelCapacity.Value = new decimal(new int[] { 1, 0, 0, 0 });
+            // 
             // MainForm
             // 
             AutoScaleDimensions = new SizeF(120F, 120F);
@@ -847,7 +872,7 @@
             groupBox5.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_SendSmsTimeout).EndInit();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_Multiple).EndInit();
-            ((System.ComponentModel.ISupportInitialize)numericUpDown_TaskPullInterval).EndInit();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_TaskPullIntervalMs).EndInit();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_MaxConcurrency).EndInit();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_UvExecutionInterval).EndInit();
             statusStrip1.ResumeLayout(false);
@@ -860,6 +885,7 @@
             groupBox2.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_ChildProcessResetIntervalMinutes).EndInit();
             ((System.ComponentModel.ISupportInitialize)numericUpDown_MainProcessResetIntervalMinutes).EndInit();
+            ((System.ComponentModel.ISupportInitialize)numericUpDown_ChannelCapacity).EndInit();
             ResumeLayout(false);
             PerformLayout();
 
@@ -887,7 +913,7 @@
         private TextBox textBox_TaskApiUrl;
         private Label label10;
         private Label label13;
-        private NumericUpDown numericUpDown_TaskPullInterval;
+        private NumericUpDown numericUpDown_TaskPullIntervalMs;
         private Button btnStartStop;
         private Label label12;
         private NumericUpDown numericUpDown_MaxConcurrency;
@@ -935,6 +961,8 @@
         private CheckBox checkBox_IsProxyMode;
         private ToolStripStatusLabel lblStatus;
         private CheckBox checkBox_IsOsrMode;
+        private Label label5;
+        private NumericUpDown numericUpDown_ChannelCapacity;
     }
 }
 

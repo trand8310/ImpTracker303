@@ -20,16 +20,27 @@
         /// <summary>
         /// 任务提取间隔
         /// </summary>
-        public int TaskPullInterval { get; set; } = 1000;
+        public int TaskPullIntervalMs { get; set; } = 1000;
+        /// <summary>
+        /// 任务提取出错延时(毫秒)
+        /// </summary>
+        public int TaskPullErrorDelayMs { get; set; } = 1000;
         /// <summary>
         /// 单UV执行间隔
         /// </summary>
-        public int UvExecutionInterval { get; set; } = 1000;
+        public int UvExecutionIntervalMs { get; set; } = 1000;
+
+        /// <summary>
+        /// 任务队列
+        /// </summary>
+        public int ChannelCapacity { get; set; } = 1;
+
         /// <summary>
         /// 并发数量
         /// </summary>
 
         public int MaxConcurrency { get; set; }
+
 
         /// <summary>
         /// 倍率
