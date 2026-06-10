@@ -39,6 +39,23 @@ namespace MainClient.Scheduler
         public bool IsEmpty => Fetched == 0 && Consumed == 0 && (ConsumedIps == null || ConsumedIps.Length == 0);
     }
 
+    public readonly record struct TrafficTaskUiSnapshot(
+        int TaskId,
+        long Request,
+        long Start,
+        long Dsp,
+        long Clickthrough,
+        long Success,
+        long Error,
+        long Failure,
+        long Complete,
+        double ClickRatio);
+
+    public readonly record struct TrafficProxyIpUiSnapshot(
+        int TaskId,
+        long Fetched,
+        long Consumed);
+
     #endregion
 
     public sealed class TrafficLocalHourTaskState
@@ -144,30 +161,66 @@ namespace MainClient.Scheduler
             await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                var state = Volatile.Read(ref _state);
-
-                if (state == 1)
-                    return;
-
-                if (state == 2)
-                    throw new InvalidOperationException("AdTrafficAggregator is stopping and cannot be started.");
-
-                if (state == 4)
-                    throw new ObjectDisposedException(nameof(TrafficAggregator));
-
-                _runCts = new CancellationTokenSource();
-
-                _processTaskQueue = Task.Run(() => ProcessTaskStateQueueAsync(_runCts.Token));
-                _processIpQueue = Task.Run(() => ProcessProxyIpQueueAsync(_runCts.Token));
-                _flushLoopTask = Task.Run(() => FlushLoopAsync(_runCts.Token));
-
-
-                Volatile.Write(ref _state, 1);
+                StartBackgroundWorkers();
             }
             finally
             {
                 _lifecycleLock.Release();
             }
+        }
+
+        private bool TryEnsureStarted()
+        {
+            var state = Volatile.Read(ref _state);
+            if (state == 1)
+                return true;
+
+            if (state != 0)
+                return false;
+
+            _lifecycleLock.Wait();
+            try
+            {
+                state = Volatile.Read(ref _state);
+                if (state == 1)
+                    return true;
+
+                if (state != 0)
+                    return false;
+
+                StartBackgroundWorkers();
+                return true;
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
+        }
+
+        private void StartBackgroundWorkers()
+        {
+            var state = Volatile.Read(ref _state);
+
+            if (state == 1)
+                return;
+
+            if (state == 2)
+                throw new InvalidOperationException("TrafficAggregator is stopping and cannot be started.");
+
+            if (state == 3)
+                throw new InvalidOperationException("TrafficAggregator has been stopped and cannot be restarted.");
+
+            if (state == 4)
+                throw new ObjectDisposedException(nameof(TrafficAggregator));
+
+            _runCts = new CancellationTokenSource();
+            var token = _runCts.Token;
+
+            _processTaskQueue = Task.Run(() => ProcessTaskStateQueueAsync(token));
+            _processIpQueue = Task.Run(() => ProcessProxyIpQueueAsync(token));
+            _flushLoopTask = Task.Run(() => FlushLoopAsync(token));
+
+            Volatile.Write(ref _state, 1);
         }
 
         public async Task StopAsync(CancellationToken cancellationToken = default)
@@ -232,7 +285,7 @@ namespace MainClient.Scheduler
 
         public void EnqueueTaskState(TrafficTaskStateEvent ev)
         {
-            if (!IsStarted)
+            if (!TryEnsureStarted())
                 return;
 
             _taskStateQueue.Writer.TryWrite(ev);
@@ -240,7 +293,7 @@ namespace MainClient.Scheduler
 
         public void EnqueueFetchedIp(int taskId, int count = 1)
         {
-            if (!IsStarted)
+            if (!TryEnsureStarted())
                 return;
 
             _proxyIpStateQueue.Writer.TryWrite(new TrafficTaskProxyIpStateEvent(taskId, TrafficProxyIpKind.Fetched, null, count));
@@ -248,7 +301,7 @@ namespace MainClient.Scheduler
 
         public void EnqueueConsumedIp(int taskId, string ip, int count = 1)
         {
-            if (!IsStarted)
+            if (!TryEnsureStarted())
                 return;
 
             _proxyIpStateQueue.Writer.TryWrite(new TrafficTaskProxyIpStateEvent(taskId, TrafficProxyIpKind.Consumed, ip, count));
@@ -266,6 +319,36 @@ namespace MainClient.Scheduler
         /// </summary>
         /// <returns></returns>
         public TrafficTaskStateEntity GetHostTaskStats() => _hostTaskStates;
+
+        public TrafficTaskUiSnapshot GetHostSnapshot()
+        {
+            TryEnsureStarted();
+            return _hostTaskStates.ToUiSnapshot(0);
+        }
+
+        public TrafficTaskUiSnapshot? GetTaskSnapshot(int taskId)
+        {
+            TryEnsureStarted();
+            return _taskStates.TryGetValue(taskId, out var stats)
+                ? stats.ToUiSnapshot(taskId)
+                : null;
+        }
+
+        public IReadOnlyList<TrafficTaskUiSnapshot> GetTaskSnapshots()
+        {
+            TryEnsureStarted();
+            return _taskStates
+                .Select(pair => pair.Value.ToUiSnapshot(pair.Key))
+                .ToArray();
+        }
+
+        public TrafficProxyIpUiSnapshot? GetProxyIpSnapshot(int taskId)
+        {
+            TryEnsureStarted();
+            return _proxyIpStates.TryGetValue(taskId, out var stats)
+                ? stats.ToUiSnapshot(taskId)
+                : null;
+        }
 
         public async Task<double> GetClickRatioAsync(int taskId, double taskCtr = 100)
         {
