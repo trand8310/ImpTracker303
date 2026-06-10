@@ -20,6 +20,30 @@ namespace MainClient.Scheduler
 
         public double ClickRatio => DSP == 0 ? 0 : (double)Clickthrough / DSP;
 
+        public TrafficTaskUiSnapshot ToUiSnapshot(int taskId)
+        {
+            var request = Interlocked.Read(ref Request);
+            var start = Interlocked.Read(ref Start);
+            var dsp = Interlocked.Read(ref DSP);
+            var clickthrough = Interlocked.Read(ref Clickthrough);
+            var success = Interlocked.Read(ref Success);
+            var error = Interlocked.Read(ref Error);
+            var failure = Interlocked.Read(ref Failure);
+            var complete = Interlocked.Read(ref Complete);
+
+            return new TrafficTaskUiSnapshot(
+                taskId,
+                request,
+                start,
+                dsp,
+                clickthrough,
+                success,
+                error,
+                failure,
+                complete,
+                dsp == 0 ? 0 : clickthrough / (double)dsp);
+        }
+
         public void Add(TrafficTaskStateKind type, int count)
         {
             switch (type)

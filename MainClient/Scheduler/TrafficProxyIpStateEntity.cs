@@ -48,6 +48,14 @@ namespace MainClient.Scheduler
             );
         }
 
+        public TrafficProxyIpUiSnapshot ToUiSnapshot(int taskId)
+        {
+            return new TrafficProxyIpUiSnapshot(
+                taskId,
+                Interlocked.Read(ref _fetched),
+                Interlocked.Read(ref _consumed));
+        }
+
         public void Commit(TrafficProxyIpStateSnapshot snapshot)
         {
             if (snapshot.IsEmpty)
