@@ -118,11 +118,15 @@ namespace MainClient
         object? sender,
         RunnerStateChangedEventArgs e)
         {
-            //this.InvokeOnUiThreadIfRequired(() =>
-            //{
-            //    RefreshStartStopButton(e.NewState);
-            //    AddLog($"状态变化: {e.OldState} -> {e.NewState}");
-            //});
+            BeginInvokeSafe(() =>
+            {
+                RefreshStartStopButton(e.NewState);
+
+                if (e.NewState == RunnerState.Running)
+                    StartStatsRefreshTimer();
+                else
+                    StopStatsRefreshTimer();
+            });
         }
         private void RefreshStartStopButton(RunnerState state)
         {
@@ -274,16 +278,16 @@ namespace MainClient
 
         private void StartStatsRefreshTimer()
         {
-            _statsTimer.Interval = 1000;
-            _statsTimer.Tick += (_, __) => RefreshTrafficStatsToUi();
-            _statsTimer.Start();
+            if (!_statsTimer.Enabled)
+                _statsTimer.Start();
 
             RefreshTrafficStatsToUi();
+        }
 
-            this.FormClosing += (_, __) =>
-            {
+        private void StopStatsRefreshTimer()
+        {
+            if (_statsTimer.Enabled)
                 _statsTimer.Stop();
-            };
         }
 
         private void RefreshTrafficStatsToUi()
@@ -1542,13 +1546,16 @@ namespace MainClient
             _osrScreenshotTimer = new System.Windows.Forms.Timer(components);
             _osrScreenshotTimer.Interval = OsrScreenshotQueueIntervalMs;
             _osrScreenshotTimer.Tick += (_, _) => DrainOsrScreenshotQueue();
+
+            _statsTimer.Interval = 1000;
+            _statsTimer.Tick += (_, _) => RefreshTrafficStatsToUi();
+            this.FormClosing += (_, _) => StopStatsRefreshTimer();
         }
 
 
         private void MainForm_Load(object sender, EventArgs e)
         {
             StartLogConsumer();
-            StartStatsRefreshTimer();
             _logger.LogInformation("应用已启动");
             Task.Run(() =>
             {
