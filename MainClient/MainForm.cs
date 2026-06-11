@@ -24,6 +24,7 @@ namespace MainClient
         private readonly ILogger _logger;
         private readonly AppSettings _appSettings;
         private readonly TrafficAggregator _aggregator;
+        private readonly System.Windows.Forms.Timer _statsTimer = new();
         private readonly AdxHelper _adxHelper;
         private readonly IpHelper _ipHelper;
         private readonly ProxyTester _ipTester;
@@ -117,11 +118,15 @@ namespace MainClient
         object? sender,
         RunnerStateChangedEventArgs e)
         {
-            //this.InvokeOnUiThreadIfRequired(() =>
-            //{
-            //    RefreshStartStopButton(e.NewState);
-            //    AddLog($"状态变化: {e.OldState} -> {e.NewState}");
-            //});
+            BeginInvokeSafe(() =>
+            {
+                RefreshStartStopButton(e.NewState);
+
+                if (e.NewState == RunnerState.Running)
+                    StartStatsRefreshTimer();
+                else
+                    StopStatsRefreshTimer();
+            });
         }
         private void RefreshStartStopButton(RunnerState state)
         {
@@ -267,13 +272,49 @@ namespace MainClient
         object? sender,
         TaskDispatchSnapshot snapshot)
         {
-            //BeginInvokeSafe(() =>
-            //{
-            //    lblQueue.Text = snapshot.QueueCount.ToString();
-            //    lblSuccess.Text = snapshot.SucceededCount.ToString();
-            //    lblFail.Text = snapshot.FailedCount.ToString();
-            //    lblRunning.Text = snapshot.State.ToString();
-            //});
+            // 当前界面统计由 _statsTimer 周期性拉取 TrafficAggregator 快照统一刷新，
+            // 避免高频事件直接更新 UI 造成界面抖动或跨线程访问。
+        }
+
+        private void StartStatsRefreshTimer()
+        {
+            if (!_statsTimer.Enabled)
+                _statsTimer.Start();
+
+            RefreshTrafficStatsToUi();
+        }
+
+        private void StopStatsRefreshTimer()
+        {
+            if (_statsTimer.Enabled)
+                _statsTimer.Stop();
+        }
+
+        private void RefreshTrafficStatsToUi()
+        {
+            try
+            {
+                var host = _aggregator.GetHostSnapshot();
+                var taskSnapshot = _taskManager.Snapshot;
+
+                label_request.Text = $"请求数量:{host.Request}";
+                label_start.Text = $"提交数量:{host.Start}";
+                label_dsp.Text = $"曝光数量:{host.Dsp}";
+                label_click.Text = $"点击数量:{host.Clickthrough} ({host.ClickRatio:P2})";
+                label_time.Text = $"运行时间:{FormatElapsed(taskSnapshot.RunElapsed)}";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "RefreshTrafficStatsToUi failed.");
+            }
+        }
+
+        private static string FormatElapsed(TimeSpan elapsed)
+        {
+            if (elapsed.TotalHours >= 1)
+                return $"{(int)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}";
+
+            return elapsed.ToString(@"mm\:ss");
         }
         #endregion
 
@@ -1505,6 +1546,10 @@ namespace MainClient
             _osrScreenshotTimer = new System.Windows.Forms.Timer(components);
             _osrScreenshotTimer.Interval = OsrScreenshotQueueIntervalMs;
             _osrScreenshotTimer.Tick += (_, _) => DrainOsrScreenshotQueue();
+
+            _statsTimer.Interval = 1000;
+            _statsTimer.Tick += (_, _) => RefreshTrafficStatsToUi();
+            this.FormClosing += (_, _) => StopStatsRefreshTimer();
         }
 
 
