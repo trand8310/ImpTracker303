@@ -118,68 +118,6 @@ namespace MainClient.Scheduler
         public bool IgnorePersistenceErrors { get; set; } = true;
     }
 
-    public sealed class TaskDispatchScheduledTaskContext
-    {
-        public TaskDispatchScheduledTaskContext(
-            TaskDispatchManager manager,
-            string name,
-            long runCount,
-            ChannelWriter<JToken> writer,
-            CancellationToken cancellationToken)
-        {
-            Manager = manager;
-            Name = name;
-            RunCount = runCount;
-            Writer = writer;
-            CancellationToken = cancellationToken;
-            TriggeredAt = DateTimeOffset.Now;
-        }
-
-        public TaskDispatchManager Manager { get; }
-
-        public string Name { get; }
-
-        public long RunCount { get; }
-
-        public DateTimeOffset TriggeredAt { get; }
-
-        public ChannelWriter<JToken> Writer { get; }
-
-        public CancellationToken CancellationToken { get; }
-
-        public ValueTask EnqueueAsync(JToken task)
-        {
-            return Writer.WriteAsync(task, CancellationToken);
-        }
-
-        public bool TryEnqueue(JToken task)
-        {
-            return Writer.TryWrite(task);
-        }
-    }
-
-    public interface ITaskDispatchScheduledTask
-    {
-        Task ExecuteAsync(TaskDispatchScheduledTaskContext context);
-    }
-
-    public sealed class TaskDispatchScheduledTaskOptions
-    {
-        public string Name { get; set; } = "ScheduledTask";
-
-        public TimeSpan Interval { get; set; }
-
-        public TimeSpan? FirstDelay { get; set; }
-
-        public bool RunImmediately { get; set; } = true;
-
-        public bool StopOnException { get; set; } = false;
-
-        public Func<TaskDispatchScheduledTaskContext, Task>? Callback { get; set; }
-
-        public ITaskDispatchScheduledTask? Worker { get; set; }
-    }
-
     public sealed class TaskDispatchStartOptions
     {
         public int ConsumerCount { get; set; }
@@ -187,8 +125,6 @@ namespace MainClient.Scheduler
         public Func<ChannelWriter<JToken>, CancellationToken, Task> Producer { get; set; } = default!;
 
         public Func<int, JToken, CancellationToken, Task> Consumer { get; set; } = default!;
-
-        public List<TaskDispatchScheduledTaskOptions> ScheduledTasks { get; } = new();
 
         public CancellationToken ExternalToken { get; set; } = default;
     }
@@ -388,7 +324,6 @@ namespace MainClient.Scheduler
         private ChannelWriter<JToken> _writer = default!;
 
         private readonly List<Task> _consumerTasks = new List<Task>();
-        private readonly List<Task> _scheduledTasks = new List<Task>();
 
         private TaskDispatchStartOptions? _startOptions;
 
@@ -479,19 +414,6 @@ namespace MainClient.Scheduler
             if (startOptions == null)
                 throw new ArgumentNullException(nameof(startOptions));
 
-            ValidateStartOptions(startOptions);
-
-            lock (_syncRoot)
-            {
-                if (_state == RunnerState.Running || _state == RunnerState.Stopping)
-                    throw new InvalidOperationException("运行中不能修改启动配置。");
-
-                _startOptions = startOptions;
-            }
-        }
-
-        private static void ValidateStartOptions(TaskDispatchStartOptions startOptions)
-        {
             if (startOptions.ConsumerCount <= 0)
                 throw new ArgumentOutOfRangeException(nameof(startOptions.ConsumerCount), "ConsumerCount 必须大于 0");
 
@@ -501,28 +423,13 @@ namespace MainClient.Scheduler
             if (startOptions.Consumer == null)
                 throw new ArgumentNullException(nameof(startOptions.Consumer));
 
-            foreach (var scheduledTask in startOptions.ScheduledTasks)
+            lock (_syncRoot)
             {
-                ValidateScheduledTask(scheduledTask);
+                if (_state == RunnerState.Running || _state == RunnerState.Stopping)
+                    throw new InvalidOperationException("运行中不能修改启动配置。");
+
+                _startOptions = startOptions;
             }
-        }
-
-        private static void ValidateScheduledTask(TaskDispatchScheduledTaskOptions scheduledTask)
-        {
-            if (scheduledTask == null)
-                throw new ArgumentNullException(nameof(scheduledTask));
-
-            if (scheduledTask.Interval <= TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(nameof(scheduledTask.Interval), "定时任务间隔必须大于 0。");
-
-            if (scheduledTask.FirstDelay.HasValue && scheduledTask.FirstDelay.Value < TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(nameof(scheduledTask.FirstDelay), "首次延迟不能小于 0。");
-
-            if (scheduledTask.Callback == null && scheduledTask.Worker == null)
-                throw new ArgumentException("定时任务必须配置 Callback 或 Worker。", nameof(scheduledTask));
-
-            if (scheduledTask.Callback != null && scheduledTask.Worker != null)
-                throw new ArgumentException("定时任务 Callback 和 Worker 只能配置一个。", nameof(scheduledTask));
         }
 
         public Task StartAsync()
@@ -541,8 +448,7 @@ namespace MainClient.Scheduler
                 consumerCount: startOptions.ConsumerCount,
                 producer: startOptions.Producer,
                 consumer: startOptions.Consumer,
-                externalToken: startOptions.ExternalToken,
-                scheduledTasks: startOptions.ScheduledTasks);
+                externalToken: startOptions.ExternalToken);
 
             return Task.CompletedTask;
         }
@@ -551,8 +457,7 @@ namespace MainClient.Scheduler
             int consumerCount,
             Func<ChannelWriter<JToken>, CancellationToken, Task> producer,
             Func<int, JToken, CancellationToken, Task> consumer,
-            CancellationToken externalToken = default,
-            IReadOnlyCollection<TaskDispatchScheduledTaskOptions>? scheduledTasks = null)
+            CancellationToken externalToken = default)
         {
             if (consumerCount <= 0)
                 throw new ArgumentOutOfRangeException(nameof(consumerCount), "consumerCount 必须大于 0");
@@ -562,14 +467,6 @@ namespace MainClient.Scheduler
 
             if (consumer == null)
                 throw new ArgumentNullException(nameof(consumer));
-
-            if (scheduledTasks != null)
-            {
-                foreach (var scheduledTask in scheduledTasks)
-                {
-                    ValidateScheduledTask(scheduledTask);
-                }
-            }
 
             lock (_syncRoot)
             {
@@ -617,7 +514,6 @@ namespace MainClient.Scheduler
                 }
 
                 _consumerTasks.Clear();
-                _scheduledTasks.Clear();
 
                 for (int i = 1; i <= consumerCount; i++)
                 {
@@ -633,19 +529,6 @@ namespace MainClient.Scheduler
                 _producerTask = Task.Run(
                     () => RunProducerFlowAsync(producer, token),
                     CancellationToken.None);
-
-                if (scheduledTasks != null)
-                {
-                    foreach (var scheduledTask in scheduledTasks)
-                    {
-                        var taskOptions = scheduledTask;
-                        var task = Task.Run(
-                            () => RunScheduledTaskLoopAsync(taskOptions, token),
-                            CancellationToken.None);
-
-                        _scheduledTasks.Add(task);
-                    }
-                }
 
                 TryLog(
                     DispatchLogLevel.Info,
@@ -727,9 +610,6 @@ namespace MainClient.Scheduler
                 if (_consumerTasks.Count > 0)
                     tasks.AddRange(_consumerTasks);
 
-                if (_scheduledTasks.Count > 0)
-                    tasks.AddRange(_scheduledTasks);
-
                 _stopTask = StopCoreAsync(tasks, options);
                 taskToWait = _stopTask;
             }
@@ -749,74 +629,6 @@ namespace MainClient.Scheduler
 
             _channel = Channel.CreateBounded<JToken>(channelOptions);
             _writer = new NotifyingChannelWriter(_channel.Writer, OnTaskWritten);
-        }
-
-        private async Task RunScheduledTaskLoopAsync(
-            TaskDispatchScheduledTaskOptions scheduledTask,
-            CancellationToken token)
-        {
-            var name = string.IsNullOrWhiteSpace(scheduledTask.Name)
-                ? "ScheduledTask"
-                : scheduledTask.Name;
-
-            long runCount = 0;
-
-            try
-            {
-                if (scheduledTask.FirstDelay.HasValue && scheduledTask.FirstDelay.Value > TimeSpan.Zero)
-                {
-                    await Task.Delay(scheduledTask.FirstDelay.Value, token).ConfigureAwait(false);
-                }
-                else if (!scheduledTask.RunImmediately)
-                {
-                    await Task.Delay(scheduledTask.Interval, token).ConfigureAwait(false);
-                }
-
-                while (!token.IsCancellationRequested)
-                {
-                    runCount++;
-                    var context = new TaskDispatchScheduledTaskContext(
-                        this,
-                        name,
-                        runCount,
-                        _writer,
-                        token);
-
-                    try
-                    {
-                        if (scheduledTask.Callback != null)
-                            await scheduledTask.Callback(context).ConfigureAwait(false);
-                        else
-                            await scheduledTask.Worker!.ExecuteAsync(context).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (token.IsCancellationRequested)
-                    {
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        TryLog(
-                            DispatchLogLevel.Error,
-                            name,
-                            $"定时任务执行失败，runCount={runCount}",
-                            ex);
-
-                        if (scheduledTask.StopOnException)
-                        {
-                            Fault(ex);
-                            TryCancel();
-                            _channel.Writer.TryComplete(ex);
-                            break;
-                        }
-                    }
-
-                    await Task.Delay(scheduledTask.Interval, token).ConfigureAwait(false);
-                }
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                TryLog(DispatchLogLevel.Info, name, "定时任务已取消。");
-            }
         }
 
         private async Task RunProducerFlowAsync(
@@ -1296,7 +1108,6 @@ namespace MainClient.Scheduler
 
                 _producerTask = null;
                 _consumerTasks.Clear();
-                _scheduledTasks.Clear();
 
                 if (_stopwatch.IsRunning)
                     _stopwatch.Stop();
