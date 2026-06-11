@@ -24,7 +24,6 @@ namespace MainClient
         private readonly ILogger _logger;
         private readonly AppSettings _appSettings;
         private readonly TrafficAggregator _aggregator;
-        private readonly System.Windows.Forms.Timer _statsTimer = new();
         private readonly AdxHelper _adxHelper;
         private readonly IpHelper _ipHelper;
         private readonly ProxyTester _ipTester;
@@ -56,7 +55,32 @@ namespace MainClient
                 ContinueOnTaskError = true,
 
                 // 停止最多等待 8 秒
-                DefaultStopTimeout = TimeSpan.FromSeconds(8)
+                DefaultStopTimeout = TimeSpan.FromSeconds(8),
+
+                ScheduledTasks = new List<ScheduledTaskOptions>()
+                {
+                    new ScheduledTaskOptions(){
+                        Name="定时更新UI",
+                        Interval = TimeSpan.FromSeconds(1),
+                      // 初始化 Callback
+                        Callback = async (cancellationToken) =>
+                        {
+                            try
+                            {
+                               LogWriteLine($"定时触发: {DateTime.Now}");
+                                this.InvokeOnUiThreadIfRequired(() =>{
+                                 RefreshTrafficStatsToUi();
+                                });
+                                await Task.Delay(200);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                Console.WriteLine("任务被取消");
+                            }
+                        },
+                        ContinueOnError = true
+                    }
+                }
             });
 
             _taskManager.ConfigureStart(new TaskDispatchStartOptions
@@ -121,11 +145,6 @@ namespace MainClient
             BeginInvokeSafe(() =>
             {
                 RefreshStartStopButton(e.NewState);
-
-                if (e.NewState == RunnerState.Running)
-                    StartStatsRefreshTimer();
-                else
-                    StopStatsRefreshTimer();
             });
         }
         private void RefreshStartStopButton(RunnerState state)
@@ -276,27 +295,15 @@ namespace MainClient
             // 避免高频事件直接更新 UI 造成界面抖动或跨线程访问。
         }
 
-        private void StartStatsRefreshTimer()
-        {
-            if (!_statsTimer.Enabled)
-                _statsTimer.Start();
-
-            RefreshTrafficStatsToUi();
-        }
-
-        private void StopStatsRefreshTimer()
-        {
-            if (_statsTimer.Enabled)
-                _statsTimer.Stop();
-        }
-
+        /// <summary>
+        /// 更新UI上的统计数据
+        /// </summary>
         private void RefreshTrafficStatsToUi()
         {
             try
             {
                 var host = _aggregator.GetHostSnapshot();
                 var taskSnapshot = _taskManager.Snapshot;
-
                 label_request.Text = $"请求数量:{host.Request}";
                 label_start.Text = $"提交数量:{host.Start}";
                 label_dsp.Text = $"曝光数量:{host.Dsp}";
@@ -825,7 +832,7 @@ namespace MainClient
 
                     string browserId = $"uv_{uvIndex + 1}";
 
-                   // _aggregator.EnqueueTaskState(new AdTrafficTaskStateEvent(ctx.TaskId, AdTrafficTaskStateKind.Request, 1));
+                    // _aggregator.EnqueueTaskState(new AdTrafficTaskStateEvent(ctx.TaskId, AdTrafficTaskStateKind.Request, 1));
                     try
                     {
                         var dev = await GetDeviceForTaskAsync(ctx.OS, ctx.TaskId, uvIndex, innerToken);
@@ -1547,9 +1554,6 @@ namespace MainClient
             _osrScreenshotTimer.Interval = OsrScreenshotQueueIntervalMs;
             _osrScreenshotTimer.Tick += (_, _) => DrainOsrScreenshotQueue();
 
-            _statsTimer.Interval = 1000;
-            _statsTimer.Tick += (_, _) => RefreshTrafficStatsToUi();
-            this.FormClosing += (_, _) => StopStatsRefreshTimer();
         }
 
 

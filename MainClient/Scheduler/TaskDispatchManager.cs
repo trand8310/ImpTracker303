@@ -6,118 +6,6 @@ using System.Threading.Channels;
 
 namespace MainClient.Scheduler
 {
-    public enum RunnerState
-    {
-        Stopped = 0,
-        Running = 1,
-        Stopping = 2,
-        Faulted = 3
-    }
-
-    public enum DispatchTaskEventKind
-    {
-        Enqueued = 0,
-        Dequeued = 1,
-        Started = 2,
-        Succeeded = 3,
-        Failed = 4,
-        Canceled = 5,
-        Dropped = 6
-    }
-
-    public enum DispatchLogLevel
-    {
-        Trace = 0,
-        Info = 1,
-        Warning = 2,
-        Error = 3
-    }
-
-    public enum TaskDispatchToggleAction
-    {
-        Started = 1,
-        Stopped = 2
-    }
-
-    public sealed class TaskDispatchManagerOptions
-    {
-        /// <summary>
-        /// 队列容量。队列满了后 WriteAsync 会等待，避免无限堆内存。
-        /// </summary>
-        public int Capacity { get; set; } = 1000;
-
-        /// <summary>
-        /// 队列满时策略。建议使用 Wait。
-        /// </summary>
-        public BoundedChannelFullMode FullMode { get; set; } = BoundedChannelFullMode.Wait;
-
-        public bool SingleWriter { get; set; } = true;
-
-        public bool SingleReader { get; set; } = false;
-
-        public bool AllowSynchronousContinuations { get; set; } = false;
-
-        /// <summary>
-        /// Producer 正常结束后是否自动 Complete Writer。
-        /// 如果 Producer 是一直循环取任务，一般保持 true 即可。
-        /// </summary>
-        public bool AutoCompleteWriterWhenProducerEnds { get; set; } = true;
-
-        /// <summary>
-        /// 单个任务异常是否继续整体调度。
-        /// true：单任务失败只触发 TaskFailed，整体继续。
-        /// false：单任务失败会让调度器 Faulted。
-        /// </summary>
-        public bool ContinueOnTaskError { get; set; } = true;
-
-        /// <summary>
-        /// Producer 异常是否让调度器进入 Faulted。
-        /// </summary>
-        public bool FaultOnProducerException { get; set; } = true;
-
-        /// <summary>
-        /// Consumer 循环异常是否让调度器进入 Faulted。
-        /// </summary>
-        public bool FaultOnConsumerLoopException { get; set; } = true;
-
-        /// <summary>
-        /// 默认停止超时时间。
-        /// </summary>
-        public TimeSpan DefaultStopTimeout { get; set; } = TimeSpan.FromSeconds(10);
-
-        /// <summary>
-        /// Stop 时是否把 Channel 队列中还没被取出的任务落盘。
-        /// 注意：已经被 Consumer 取出的任务不在这里。
-        /// </summary>
-        public bool PersistPendingOnStop { get; set; } = false;
-
-        /// <summary>
-        /// Start 时是否加载上次落盘任务。
-        /// </summary>
-        public bool LoadPersistedOnStart { get; set; } = false;
-
-        /// <summary>
-        /// 成功加载落盘任务后，是否删除落盘文件。
-        /// </summary>
-        public bool DeletePersistenceFileAfterLoad { get; set; } = true;
-
-        /// <summary>
-        /// 落盘文件路径。
-        /// </summary>
-        public string PersistenceFilePath { get; set; } =
-            Path.Combine(AppContext.BaseDirectory, "task_dispatch_pending.json");
-
-        /// <summary>
-        /// 落盘 JSON 格式。
-        /// </summary>
-        public Formatting PersistenceFormatting { get; set; } = Formatting.None;
-
-        /// <summary>
-        /// 持久化异常是否只记录日志，不中断调度器。
-        /// </summary>
-        public bool IgnorePersistenceErrors { get; set; } = true;
-    }
-
     public sealed class TaskDispatchStartOptions
     {
         public int ConsumerCount { get; set; }
@@ -347,6 +235,10 @@ namespace MainClient.Scheduler
         private long _canceledCount;
         private long _droppedCount;
 
+        // 定时任务相关
+        private readonly List<ScheduledTaskRun> _scheduledRuns = new();
+        private int _scheduledExecutionCount;
+
         public TaskDispatchManager(TaskDispatchManagerOptions options)
         {
             _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -387,6 +279,10 @@ namespace MainClient.Scheduler
         public event EventHandler<PersistedTasksLoadedEventArgs>? PersistedTasksLoaded;
 
         public event EventHandler<TaskDispatchSnapshot>? StatisticsChanged;
+
+        public event EventHandler<ScheduledTaskExecutedEventArgs>? ScheduledTaskExecuted;
+
+        public event EventHandler<ScheduledTaskFailedEventArgs>? ScheduledTaskFailed;
 
         public ChannelWriter<JToken> Writer => _writer;
 
@@ -530,6 +426,31 @@ namespace MainClient.Scheduler
                     () => RunProducerFlowAsync(producer, token),
                     CancellationToken.None);
 
+                // 启动所有定时任务
+                if (_options.ScheduledTasks is { Count: > 0 } tasks)
+                {
+                    foreach (var opt in tasks)
+                    {
+                        if (opt.Callback == null && opt.Task == null)
+                            throw new InvalidOperationException(
+                                $"定时任务 [{opt.Name}] 必须提供 Callback 或 Task。");
+
+                        if (opt.Interval <= TimeSpan.Zero)
+                            throw new InvalidOperationException(
+                                $"定时任务 [{opt.Name}] 的 Interval 必须大于 0。");
+
+                        var cts = new CancellationTokenSource();
+                        var runTask = Task.Run(
+                            () => RunScheduledLoopAsync(opt, cts.Token),
+                            CancellationToken.None);
+
+                        _scheduledRuns.Add(new ScheduledTaskRun(opt, runTask, cts));
+                    }
+
+                    TryLog(DispatchLogLevel.Info, "ScheduledTask",
+                        $"已启动 {tasks.Count} 个定时任务。");
+                }
+
                 TryLog(
                     DispatchLogLevel.Info,
                     "Runner",
@@ -600,6 +521,18 @@ namespace MainClient.Scheduler
 
                 TryCancel();
 
+                // 取消所有定时任务
+                foreach (var run in _scheduledRuns)
+                {
+                    try
+                    {
+                        run.Cts.Cancel();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                    }
+                }
+
                 _channel.Writer.TryComplete();
 
                 var tasks = new List<Task>();
@@ -609,6 +542,13 @@ namespace MainClient.Scheduler
 
                 if (_consumerTasks.Count > 0)
                     tasks.AddRange(_consumerTasks);
+
+                // 将定时任务也加入等待列表
+                foreach (var run in _scheduledRuns)
+                {
+                    if (!run.RunTask.IsCompleted)
+                        tasks.Add(run.RunTask);
+                }
 
                 _stopTask = StopCoreAsync(tasks, options);
                 taskToWait = _stopTask;
@@ -793,6 +733,84 @@ namespace MainClient.Scheduler
                     _channel.Writer.TryComplete(ex);
                 }
             }
+        }
+
+        /// <summary>
+        /// 定时任务循环。每个定时任务独立运行此方法，按配置的 Interval 周期执行回调或接口。
+        /// </summary>
+        private async Task RunScheduledLoopAsync(
+            ScheduledTaskOptions options,
+            CancellationToken token)
+        {
+            var name = options.Name ?? "(未命名)";
+            int executionCount = 0;
+
+            TryLog(DispatchLogLevel.Info, "ScheduledTask",
+                $"定时任务 [{name}] 已启动，interval={options.Interval.TotalSeconds:F1}s");
+
+            while (!token.IsCancellationRequested)
+            {
+                var sw = Stopwatch.StartNew();
+
+                try
+                {
+                    // 优先使用委托，其次使用接口
+                    if (options.Callback != null)
+                    {
+                        await options.Callback(token).ConfigureAwait(false);
+                    }
+                    else if (options.Task != null)
+                    {
+                        await options.Task.ExecuteAsync(token).ConfigureAwait(false);
+                    }
+
+                    sw.Stop();
+                    var count = Interlocked.Increment(ref executionCount);
+                    Interlocked.Increment(ref _scheduledExecutionCount);
+
+                    RaiseScheduledTaskExecuted(name, sw.Elapsed, count);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    sw.Stop();
+                    var count = Interlocked.Increment(ref executionCount);
+                    Interlocked.Increment(ref _scheduledExecutionCount);
+
+                    RaiseScheduledTaskFailed(name, ex, sw.Elapsed, count);
+
+                    TryLog(
+                        DispatchLogLevel.Error,
+                        "ScheduledTask",
+                        $"定时任务 [{name}] 执行异常，count={count}, elapsed={sw.ElapsedMilliseconds}ms",
+                        ex);
+
+                    if (!options.ContinueOnError)
+                    {
+                        TryLog(
+                            DispatchLogLevel.Warning,
+                            "ScheduledTask",
+                            $"定时任务 [{name}] 因 ContinueOnError=false 停止调度。");
+                        break;
+                    }
+                }
+
+                // 等待下一个周期
+                try
+                {
+                    await Task.Delay(options.Interval, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
+
+            TryLog(DispatchLogLevel.Info, "ScheduledTask",
+                $"定时任务 [{name}] 已停止，totalExecutions={executionCount}");
         }
 
         private async Task<TaskDispatchStopResult> StopCoreAsync(
@@ -1109,6 +1127,20 @@ namespace MainClient.Scheduler
                 _producerTask = null;
                 _consumerTasks.Clear();
 
+                // 清理定时任务
+                foreach (var run in _scheduledRuns)
+                {
+                    try
+                    {
+                        run.Cts.Dispose();
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                _scheduledRuns.Clear();
+
                 if (_stopwatch.IsRunning)
                     _stopwatch.Stop();
 
@@ -1124,6 +1156,18 @@ namespace MainClient.Scheduler
 
         private void CleanupTokenOnly_NoLock()
         {
+            // 防御性清理定时任务 CTS（通常此时列表应为空）
+            foreach (var run in _scheduledRuns)
+            {
+                try
+                {
+                    run.Cts.Dispose();
+                }
+                catch
+                {
+                }
+            }
+
             try
             {
                 _externalTokenRegistration.Dispose();
@@ -1337,6 +1381,39 @@ namespace MainClient.Scheduler
             }
         }
 
+        private void RaiseScheduledTaskExecuted(
+            string? taskName,
+            TimeSpan elapsed,
+            int executionCount)
+        {
+            try
+            {
+                ScheduledTaskExecuted?.Invoke(
+                    this,
+                    new ScheduledTaskExecutedEventArgs(taskName, elapsed, executionCount));
+            }
+            catch
+            {
+            }
+        }
+
+        private void RaiseScheduledTaskFailed(
+            string? taskName,
+            Exception exception,
+            TimeSpan elapsed,
+            int executionCount)
+        {
+            try
+            {
+                ScheduledTaskFailed?.Invoke(
+                    this,
+                    new ScheduledTaskFailedEventArgs(taskName, exception, elapsed, executionCount));
+            }
+            catch
+            {
+            }
+        }
+
         public async ValueTask DisposeAsync()
         {
             await StopAsync(new TaskDispatchStopOptions
@@ -1344,6 +1421,28 @@ namespace MainClient.Scheduler
                 PersistPending = _options.PersistPendingOnStop,
                 Timeout = _options.DefaultStopTimeout
             }).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// 定时任务运行状态，内部使用。
+        /// </summary>
+        private sealed class ScheduledTaskRun
+        {
+            public ScheduledTaskRun(
+                ScheduledTaskOptions options,
+                Task runTask,
+                CancellationTokenSource cts)
+            {
+                Options = options;
+                RunTask = runTask;
+                Cts = cts;
+            }
+
+            public ScheduledTaskOptions Options { get; }
+
+            public Task RunTask { get; }
+
+            public CancellationTokenSource Cts { get; }
         }
 
         private sealed class NotifyingChannelWriter : ChannelWriter<JToken>
